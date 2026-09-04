@@ -27,7 +27,9 @@ class WorkerTests(unittest.TestCase):
     def test_windows_launch_is_direct(self):
         with patch("dlss_engine.core.workers.sys.platform", "win32"):
             command, options = worker_launch(self.worker, "--probe")
-        self.assertEqual(command, [str(self.worker), "--probe"])
+        # Windows temp paths can use an 8.3 alias which resolve() expands.
+        self.assertTrue(Path(command[0]).samefile(self.worker))
+        self.assertEqual(command[1:], ["--probe"])
         self.assertNotIn("start_new_session", options)
 
     @unittest.skipUnless(sys.platform == "linux", "Linux configuration")

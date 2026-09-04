@@ -80,6 +80,7 @@ commands in the terminal you will later use to start ComfyUI:
 export WINEPREFIX="$HOME/.local/share/comfyui-dlss-wine"
 export DLSS_PROTON_FILES="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-6-x86_64/files"
 export DLSS_WINE_PATH="$DLSS_PROTON_FILES/bin/wine"
+export WINESERVER="$DLSS_PROTON_FILES/bin/wineserver"
 mkdir -p "$WINEPREFIX"
 "$DLSS_WINE_PATH" wineboot -u
 "$DLSS_WINE_PATH" cmd /c echo Wine-ready
