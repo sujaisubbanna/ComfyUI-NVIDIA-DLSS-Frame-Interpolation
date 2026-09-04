@@ -161,6 +161,12 @@ so the modified carrier can be reviewed and rebuilt. This changes ReShade,
 not any NVIDIA DLL. Do not replace it with an ordinary ReShade download or
 with the DXVK DLL copied into `system32`.
 
+The bundled carrier is ReShade `6.8.0.1` (unofficial), produced by
+[this source build](https://github.com/sujaisubbanna/ComfyUI-NVIDIA-DLSS-Frame-Interpolation/actions/runs/33919628924).
+Its SHA-256 is
+`596e4a61b96540683fdb92f80c72c96637247276a34615c3c26a35ba78725e80`.
+Verify it with `sha256sum bin/runtime/host/dxgi.dll` from the node directory.
+
 ## 5. Make NVIDIA's NGX bridge discoverable
 
 Locate `_nvngx.dll` from your installed NVIDIA Linux driver. On the tested
