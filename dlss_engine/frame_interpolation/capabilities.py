@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..core.paths import DLSSG_DIR, DLSSG_RUNTIME, DLSSG_WORKER
 from ..core.gpu_selection import detect_gpu
+from ..core.workers import WorkerProcess, validate_binary
 from .models import FrameInterpolationCapabilities
 
 
@@ -55,24 +56,32 @@ def _authenticode_status(path: Path) -> str:
     return process.stdout.strip() if process.returncode == 0 else "Unavailable"
 
 
-def _probe_worker() -> dict:
+def _probe_worker(timeout: float = 45) -> dict:
     if not DLSSG_WORKER.is_file():
         raise RuntimeError(f"DLSSG worker is missing: {DLSSG_WORKER}")
-    command = [str(DLSSG_WORKER), "--probe"]
-    process = subprocess.run(
-        command,
+    validate_binary(DLSSG_RUNTIME)
+    process = WorkerProcess(
+        DLSSG_WORKER, "--probe",
         cwd=str(RUNTIME_DIR),
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=45,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise RuntimeError(
+            "DLSSG capability probe timed out. Check the Wine prefix and "
+            "graphics configuration on Linux (docs/linux.md)."
+        ) from None
     if process.returncode:
-        detail = process.stderr.strip() or process.stdout.strip()
+        detail = stderr.strip() or stdout.strip()
         raise RuntimeError(detail or f"DLSSG capability probe exited with {process.returncode}.")
-    lines = [line for line in process.stdout.splitlines() if line.strip()]
+    lines = [line for line in stdout.splitlines() if line.strip()]
     if not lines:
         raise RuntimeError("DLSSG capability probe returned no result.")
     return json.loads(lines[-1])
@@ -132,8 +141,13 @@ def probe_frame_interpolation_capabilities(
         probed = {}
 
     diagnostic_notes: list[str] = []
-    if not hags:
+    if os.name == "nt" and not hags:
         diagnostic_notes.append("HAGS is disabled; the native runtime may reject Frame Generation.")
+    if os.name != "nt":
+        diagnostic_notes.append(
+            "Experimental Wine backend; Windows HAGS and Authenticode "
+            "checks are not applicable. See docs/linux.md."
+        )
     if signature_status not in {"Valid", "Unavailable"}:
         diagnostic_notes.append(
             f"Authenticode status is {signature_status}; this is diagnostic only and is not blocked."

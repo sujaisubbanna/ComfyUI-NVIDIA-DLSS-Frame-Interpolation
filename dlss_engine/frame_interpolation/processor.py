@@ -4,6 +4,7 @@ import json
 import math
 import os
 import shutil
+import subprocess
 import time
 from dataclasses import asdict, dataclass
 from fractions import Fraction
@@ -231,6 +232,7 @@ def interpolate_video(
         job_dir: Path | None = None
         sessions: list[DirectDLSSGSession] = []
         encoder = None
+        encoder_thread = None
         try:
             probe_started = time.perf_counter()
             metadata = ffmpeg.probe_video(source, count_mode="metadata")
@@ -492,7 +494,23 @@ def interpolate_video(
         finally:
             for session in sessions:
                 session.close()
-            if encoder is not None and encoder.poll() is None:
-                encoder.terminate()
+            if encoder is not None:
+                if encoder.poll() is None:
+                    encoder.terminate()
+                try:
+                    encoder.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    encoder.kill()
+                    encoder.wait(timeout=5)
+                if encoder.stdin and not encoder.stdin.closed:
+                    try:
+                        encoder.stdin.close()
+                    except OSError:
+                        pass
+                controller.unregister(encoder)
+                if encoder_thread is not None:
+                    encoder_thread.join(timeout=2)
+                    if encoder.stderr and not encoder_thread.is_alive():
+                        encoder.stderr.close()
             if job_dir and job_dir.parent == jobs_root and job_dir.exists():
                 shutil.rmtree(job_dir, ignore_errors=True)

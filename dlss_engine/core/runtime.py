@@ -7,6 +7,7 @@ import mmap
 import re
 import struct
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ from .gpu_detection import detect_gpus
 from .gpu_selection import resolve_runtime_ai_gpu
 from .jobs import BoundedLogBuffer, Cancelled, JobController, drain_bounded_text
 from .paths import ADDON, DLSS_SUPERRES, FFMPEG, FFPROBE, HOST_DIR, HOST_DXGI, LOGS, NEURAL_RUNTIME, RESHADE_LOG, RUNTIME, WORKER
+from .workers import WorkerProcess, validate_binary
 
 
 
@@ -195,6 +197,7 @@ def inspect_runtime_bundle(
         },
         "worker": {
             "path": str(WORKER.resolve()),
+            "backend": "wine" if sys.platform == "linux" else "native",
         },
     }
 
@@ -352,6 +355,8 @@ def validate_runtime_files() -> None:
     missing = [str(path) for path in required if not path.exists()]
     if missing:
         raise RuntimeError("Portable runtime is incomplete:\n" + "\n".join(missing))
+    for path in (WORKER, HOST_DXGI, ADDON, DLSS_SUPERRES, NEURAL_RUNTIME):
+        validate_binary(path)
 
 
 def _read_exact(stream, size: int) -> bytes:
@@ -417,15 +422,12 @@ class DLSSFrameSession:
                 tail_size = min(256, self._reshade_log_baseline_size)
                 stream.seek(self._reshade_log_baseline_size - tail_size)
                 self._reshade_log_baseline_tail = stream.read(tail_size)
-        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        worker_command = [str(WORKER), "--video"]
-        self.worker = subprocess.Popen(
-            worker_command,
+        self.worker = WorkerProcess(
+            WORKER, "--video",
             cwd=HOST_DIR,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            creationflags=creation_flags,
         )
         controller.register(self.worker)
         assert self.worker.stderr is not None
@@ -624,6 +626,8 @@ class DLSSFrameSession:
         self.worker_thread.join(timeout=2)
         self.controller.unregister(self.worker)
         self.closed = True
+        if self.worker.stdout:
+            self.worker.stdout.close()
         if worker_code:
             raise RuntimeError(
                 "Native DLSS worker failed:\n" + "\n".join(self.worker_logs[-40:])
@@ -639,11 +643,19 @@ class DLSSFrameSession:
             except (OSError, subprocess.TimeoutExpired):
                 try:
                     self.worker.kill()
+                    self.worker.wait(timeout=10)
                 except OSError:
                     pass
         self.worker_thread.join(timeout=2)
         self.controller.unregister(self.worker)
         self.closed = True
+        if self.worker.stdin and not self.worker.stdin.closed:
+            try:
+                self.worker.stdin.close()
+            except OSError:
+                pass
+        if self.worker.stdout:
+            self.worker.stdout.close()
 
 
 def verify_feature_18(

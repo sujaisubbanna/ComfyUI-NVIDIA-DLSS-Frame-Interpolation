@@ -5,6 +5,10 @@ on:
     paths:
       - patches/**
       - .github/workflows/reshade-linux.yml
+  pull_request:
+    paths:
+      - patches/**
+      - .github/workflows/reshade-linux.yml
   workflow_dispatch:
 
 permissions:
@@ -19,11 +23,15 @@ jobs:
         with:
           repository: crosire/reshade
           ref: 358c345ca2fe64f86e67c694f8379c356627adcb
+          fetch-depth: 0
           submodules: recursive
           path: reshade-source
       - name: Apply native descriptor compatibility patch
         working-directory: reshade-source
-        run: git apply --check ../patches/reshade-vkd3d-native-descriptors.patch; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; git apply ../patches/reshade-vkd3d-native-descriptors.patch
+        run: |
+          git apply --check ../patches/reshade-vkd3d-native-descriptors.patch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git apply ../patches/reshade-vkd3d-native-descriptors.patch
       - uses: microsoft/setup-msbuild@v2
       - name: Build the add-on enabled DLL
         working-directory: reshade-source

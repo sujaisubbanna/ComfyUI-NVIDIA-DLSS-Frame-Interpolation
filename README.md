@@ -31,7 +31,7 @@ Load Image -> NVIDIA DLSS Image Upscale       -> Save Image
 
 ## Requirements
 
-- Windows
+- Windows, or Linux x86-64 with Wine (experimental; see below)
 - A compatible NVIDIA RTX GPU
 - A current NVIDIA display driver
 - A current ComfyUI installation
@@ -39,7 +39,24 @@ Load Image -> NVIDIA DLSS Image Upscale       -> Save Image
 
 No extra Python packages are required beyond the packages included with current ComfyUI (`torch`, `av`, `numpy`, and OpenCV). The NVIDIA DLLs, RenoDX/ReShade carrier, and native workers are included in this custom-node folder. FFmpeg and FFprobe are the only intentionally external runtime tools.
 
-Hardware-accelerated GPU scheduling (HAGS) is recommended for Frame Generation. Capability is checked at runtime; GPU branding alone does not guarantee that every DLSS path will initialize.
+Hardware-accelerated GPU scheduling (HAGS) is recommended for Frame Generation on Windows. Capability is checked at runtime; GPU branding alone does not guarantee that every DLSS path will initialize.
+
+### Linux
+
+Follow the [Linux setup and troubleshooting guide](docs/linux.md). ComfyUI,
+PyTorch, and FFmpeg run natively; only the bundled Windows workers run through
+Wine, DXVK, VKD3D-Proton, and DXVK-NVAPI. A configured `WINEPREFIX` is required;
+`DLSS_WINE_PATH` optionally selects the Wine executable.
+
+All three nodes have been tested on an RTX 5090 with driver 610.57.04 and
+GE-Proton 11-6: native/cascaded frame interpolation, image-batch upscaling,
+and video upscaling with audio preservation and confirmed NR execution.
+NR requires the included ReShade descriptor fix, native shader compiler,
+and Wine heap settings described in the guide.
+
+The tested upscale modes used DLSS SR followed by native-resolution NR;
+the runtime reported `nr_native_fallback: true`. Direct NR upscaling was
+not active, and **Require Neural Upscaling** still rejects that fallback.
 
 ## Installation
 
@@ -175,6 +192,9 @@ Install FFmpeg and place both executables on `PATH`, or set `DLSS_FFMPEG_PATH` a
 ### Frame Generation is unavailable
 
 Update the NVIDIA driver, enable HAGS in Windows graphics settings, restart Windows, and retry. `report_json` includes the detected GPU, driver, runtime, signature status, and supported native multiplier.
+
+On Linux, HAGS is not applicable. Check the Wine/NGX setup and run the
+capability probe in [docs/linux.md](docs/linux.md#verify-frame-interpolation).
 
 ### Native DLSSG rejects the requested FPS
 
