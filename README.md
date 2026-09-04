@@ -14,6 +14,54 @@ Load Video -> NVIDIA DLSS Video Upscale       -> Save Video
 Load Image -> NVIDIA DLSS Image Upscale       -> Save Image
 ```
 
+## Example comparison
+
+This five-second sample combines **3x video upscaling** with **frame interpolation to 120 FPS**.
+
+### Frame-interpolation comparison
+
+[![Synchronized 5x slow-motion comparison: original 24 FPS on the left and processed 120 FPS on the right](Assets/comparison-5x-slow-motion.gif)](Assets/120fps-Upscaled-interpolated.mp4)
+
+**Left:** original 24 FPS · **Right:** processed 120 FPS. Both sides are played 5x slower on the same 24 FPS timeline. The left side must repeat source frames, while the right side can show the generated intermediate frames. Click the comparison to open the complete processed MP4.
+
+### Upscaling detail comparison
+
+[![Matched detail crop: Lanczos-enlarged original on the left and native processed output on the right](Assets/comparison-detail.png)](Assets/120fps-Upscaled-interpolated.mp4)
+
+**Left:** a crop from the original enlarged 3x with Lanczos for equal-size viewing · **Right:** the corresponding native-resolution crop from the 3x processed output. This avoids hiding the resolution difference by shrinking both complete frames to the same README width.
+
+Full clips: [original 1024×640 / approximately 24 FPS](Assets/24fps-lowres.mp4) · [processed 3072×1920 / 120 FPS](Assets/120fps-Upscaled-interpolated.mp4)
+
+| Metric | Original | Processed | Change |
+| --- | ---: | ---: | ---: |
+| Resolution | 1024×640 | 3072×1920 | 3x width and height |
+| Pixels per frame | 655,360 | 5,898,240 | 9x |
+| Nominal frame rate | 24 FPS | 120 FPS | 5x |
+| Frames | 121 | 606 | Approximately 5x |
+| Duration | 5.024 seconds | 5.050 seconds | Preserved within one output-frame interval |
+
+### Processing time for this sample
+
+Benchmark system:
+
+| Component | Specification |
+| --- | --- |
+| GPU | NVIDIA GeForce RTX 4060 Ti, 16 GB VRAM (16,380 MiB reported) |
+| NVIDIA driver | 610.62 |
+| CPU | AMD Ryzen 5 7600, 6 cores / 12 threads, 3.8 GHz base clock |
+| System RAM | 64 GB (63.1 GiB reported by Windows) |
+| Operating system | Windows 11 Enterprise 64-bit, version 10.0.26200 |
+
+| Stage | Key settings | Time |
+| --- | --- | ---: |
+| Video upscale | 3x Ultra Performance, Natural NR style, Max quality, H.264 NVENC | 12.670 seconds |
+| Frame interpolation | 120 FPS, Cascade engine, Max quality, H.264 NVENC | 153.747 seconds |
+| **Combined processing** | Upscale followed by interpolation | **166.417 seconds (2m 46.417s)** |
+
+These are ComfyUI node execution times for the approximately five-second sample on the benchmark system above—about 33.1x the source duration in total. They include decoding, optical-flow guide generation, DLSS processing, encoding, and muxing. Performance varies with the GPU, CPU, source resolution, target FPS, codec, and selected quality settings; these timings are not real-time playback FPS.
+
+The animated comparison is a deliberately slowed demonstration, not real-time playback. Use the linked MP4 files to inspect the actual resolution and frame rate.
+
 ## Features
 
 - Native ComfyUI `VIDEO` and `IMAGE` connections
