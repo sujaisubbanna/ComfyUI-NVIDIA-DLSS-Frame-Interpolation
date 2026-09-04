@@ -1,0 +1,4 @@
+bin/runtime/**/*.dll filter=lfs diff=lfs merge=lfs -text
+bin/runtime/**/*.exe filter=lfs diff=lfs merge=lfs -text
+bin/runtime/**/*.addon64 filter=lfs diff=lfs merge=lfs -text
+bin/runtime/**/LICENSE-*.txt -whitespace

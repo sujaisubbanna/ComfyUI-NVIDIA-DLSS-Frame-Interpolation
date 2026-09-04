@@ -1,56 +1,63 @@
-# ComfyUI NVIDIA DLSS Frame Interpolation
+# ComfyUI NVIDIA DLSS 5 Visual Enhancer
 
-Native NVIDIA DLSS Frame Generation interpolation for ComfyUI's `VIDEO` type.
+Native NVIDIA DLSS processing for ComfyUI with three separate nodes:
 
-The node takes a video, generates intermediate frames with the bundled NVIDIA DLSSG runtime, and returns another connectable `VIDEO`. It does not create a permanent output by itself—connect it to ComfyUI's built-in **Save Video** node when you want to save the result.
+- **NVIDIA DLSS Frame Interpolation** — increases video frame rate.
+- **NVIDIA DLSS Video Upscale** — increases video resolution.
+- **NVIDIA DLSS Image Upscale** — increases image or image-batch resolution.
+
+The video nodes accept and return ComfyUI's native `VIDEO` type. They do not create permanent output: connect their output to ComfyUI's built-in **Save Video** node. The image node accepts and returns an `IMAGE` tensor directly without creating an image file.
 
 ```text
 Load Video -> NVIDIA DLSS Frame Interpolation -> Save Video
+Load Video -> NVIDIA DLSS Video Upscale       -> Save Video
+Load Image -> NVIDIA DLSS Image Upscale       -> Save Image
 ```
 
 ## Features
 
-- Native ComfyUI `VIDEO` input and output
-- NVIDIA DLSS Frame Generation through the bundled native worker and runtime
-- Automatic native-grid or cascaded interpolation
-- Exact fractional rates for 23.976, 29.97, and 59.94 FPS
-- CPU and NVIDIA NVENC encoding choices
-- MP4, MKV, and MOV intermediates
-- Optional 10-bit HDR output with compatible codecs
-- Original audio, supported subtitles, chapters, and metadata preserved where the selected container allows
-- Scene-cut and duplicate-frame handling
-- JSON diagnostics as a second node output
-- No model downloads, telemetry, analytics, or other network requests
+- Native ComfyUI `VIDEO` and `IMAGE` connections
+- Bundled DLSS Frame Generation, Super Resolution, and Neural Rendering runtimes
+- Separate image-upscale and video-upscale nodes
+- DLSS resolution modes from native/DLAA through 3x Ultra Performance
+- NR preset, style, intensity, tone, structure, skin structure, automatic mask, and DLSS model controls
+- Native or cascaded frame interpolation with exact fractional FPS choices
+- CPU and NVIDIA NVENC video encoders
+- MP4, MKV, and MOV temporary video containers
+- Optional 10-bit HDR video path with compatible codecs
+- Original video audio, supported subtitles, chapters, and metadata preserved where the selected container allows
+- JSON diagnostics from every node
+- No model downloads, telemetry, analytics, or network requests
 
 ## Requirements
 
 - Windows
-- An NVIDIA RTX GPU supported by the included DLSSG runtime
+- A compatible NVIDIA RTX GPU
 - A current NVIDIA display driver
-- ComfyUI with its standard `av`, `numpy`, and OpenCV packages
+- A current ComfyUI installation
 - FFmpeg and FFprobe available on `PATH`
 
-Hardware-accelerated GPU scheduling (HAGS) is recommended. The node performs a native capability probe before processing and reports the runtime's actual support; GPU branding alone does not guarantee that DLSS Frame Generation will initialize.
+No extra Python packages are required beyond the packages included with current ComfyUI (`torch`, `av`, `numpy`, and OpenCV). The NVIDIA DLLs, RenoDX/ReShade carrier, and native workers are included in this custom-node folder. FFmpeg and FFprobe are the only intentionally external runtime tools.
 
-No additional Python packages are required for a normal current ComfyUI installation. The DLSSG worker and `nvngx_dlssg.dll` are included inside this repository. FFmpeg and FFprobe are intentionally not redistributed.
+Hardware-accelerated GPU scheduling (HAGS) is recommended for Frame Generation. Capability is checked at runtime; GPU branding alone does not guarantee that every DLSS path will initialize.
 
 ## Installation
 
-1. Place or clone this repository into your ComfyUI custom-node directory:
+1. Download a packaged release, or clone the repository with Git LFS enabled.
+2. Place the complete folder at:
 
    ```text
-   ComfyUI/custom_nodes/ComfyUI-DLSS-Frame-Interpolation
+   ComfyUI/custom_nodes/ComfyUI-DLSS-Frame-Interpolation/
    ```
 
-2. Confirm that both executables are available:
+3. Confirm that FFmpeg and FFprobe are available:
 
    ```powershell
    ffmpeg -version
    ffprobe -version
    ```
 
-3. Restart ComfyUI.
-4. Search for **NVIDIA DLSS Frame Interpolation** under `video/interpolation`.
+4. Restart ComfyUI.
 
 If FFmpeg is not on `PATH`, define both variables before starting ComfyUI:
 
@@ -59,68 +66,115 @@ $env:DLSS_FFMPEG_PATH = "C:\path\to\ffmpeg.exe"
 $env:DLSS_FFPROBE_PATH = "C:\path\to\ffprobe.exe"
 ```
 
-## Usage
+### Important for source clones
 
-1. Add ComfyUI's **Load Video** node.
-2. Connect its `VIDEO` output to this node's `video` input.
-3. Select the target FPS, DLSS engine, encoding, and container settings.
-4. Connect `interpolated_video` to ComfyUI's **Save Video** node.
-5. Queue the workflow. The Save Video node controls the permanent output location and filename.
+The bundled `nvngx_dlssnr.dll` is larger than GitHub's normal 100 MB file limit, so runtime binaries are tracked with Git LFS. A clone that contains tiny text pointer files instead of DLLs is incomplete. Run `git lfs pull`, or use a GitHub Release archive that includes the real runtime files.
 
-The optional `report_json` output contains the selected interpolation path, capability information, frame counts, scene-cut statistics, encoder details, and elapsed time.
+## NVIDIA DLSS Video Upscale
 
-## Node options
+This node accepts a `VIDEO`, processes every frame, preserves the source timing, and returns a temporary upscaled `VIDEO` suitable for **Save Video**.
+
+### Upscale modes
+
+| Mode | Output dimensions |
+| --- | --- |
+| `1x (DLAA / native)` | Native dimensions; enhancement/anti-aliasing path |
+| `1.5x (Quality)` | Width and height multiplied by 1.5 |
+| `1.724x (Balanced)` | Width and height multiplied by 1.724 |
+| `2x (Performance)` | Width and height multiplied by 2 |
+| `3x (Ultra Performance)` | Width and height multiplied by 3 |
+
+Calculated output dimensions are rounded to even values. The maximum supported boundary is 7680×4320, including portrait orientation.
+
+The video node also exposes encoding quality, codec, container, temporary rename/suffix, and HDR controls. Connect `upscaled_video` to **Save Video** to choose the permanent destination.
+
+## NVIDIA DLSS Image Upscale
+
+This node accepts a ComfyUI `IMAGE` batch and returns the upscaled batch directly in memory. It uses the same resolution and Neural Rendering controls as the video-upscale node but has no codec or filename options because it does not encode or save files.
+
+- RGB input returns RGB output.
+- RGBA input returns RGBA output with the source alpha resized using Lanczos filtering.
+- Single-channel input is converted to RGB output.
+- Each input dimension must be at least 64 pixels.
+
+Connect `upscaled_image` to **Preview Image**, **Save Image**, or another image-processing node.
+
+## Neural Rendering controls
+
+Both upscale nodes expose the controls retained from DLSS 5 Visual Enhancer:
+
+| Option | Choices/range |
+| --- | --- |
+| Require Neural Upscaling | On/off; when on, rejects fallback output if NVIDIA reports neural upscaling inactive |
+| NR Preset | `Default`, `Preset #1`, `Preset #2`, `Preset #3` |
+| NR Style | `Default`, `Natural`, `Cinematic` |
+| NR Intensity | `0.0`–`2.0` |
+| Local Tone Strength | `0.0`–`2.0` |
+| Local Structure Strength | `0.0`–`2.0` |
+| Skin Structure Strength | `-1.0`–`2.0` |
+| Automatic Mask | On/off |
+| DLSS Model Preset | `Default`, `J`, `K`, `L`, `M` |
+
+The `report_json` output records the requested controls, negotiated render size, final output size, GPU, feature-18 evidence, and whether the neural upscaling path was active.
+
+### Neural-upscaling status matters
+
+A larger output does not automatically prove that DLSS neural upscaling reconstructed additional detail. Check these report fields:
+
+- `feature_18_confirmed`: the signed DLSS Neural Rendering feature executed.
+- `nr_upscaling_active`: the feature accepted and used the low-resolution upscaling contract.
+- `nr_native_fallback`: the runtime rejected that contract and continued through its native fallback path.
+
+If `nr_upscaling_active` is `false`, the output still has the requested larger dimensions, but it must not be described as confirmed neural Super Resolution. Results depend on source dimensions, driver, GPU, and the bundled runtime.
+
+Enable **Require Neural Upscaling** when a workflow must never continue with fallback output. It does not force an unsupported NVIDIA path to activate; it turns the runtime result into a strict pass/fail requirement.
+
+## NVIDIA DLSS Frame Interpolation
+
+This node creates intermediate frames and returns a higher-FPS `VIDEO`.
 
 | Option | Choices | Behavior |
 | --- | --- | --- |
-| Output FPS | `23.976`, `25`, `29.97`, `30`, `50`, `59.94`, `60`, `90`, `120` | Uses exact 1001-based rates for fractional choices. The requested output may not exceed 6× the source rate. |
-| DLSS engine | `Auto`, `Native DLSSG`, `Cascade` | Auto selects an exact supported native grid and otherwise uses cascaded 2× stages. Native DLSSG requires a supported exact constant-frame-rate ratio. |
-| Encoding quality | `Auto (Default)`, `Max`, `Best`, `Good` | Controls the temporary encoded `VIDEO`. Max uses constant-quality encoding; the other modes use calculated target bitrates. |
-| Video codec | `H.264`, `H.264 (NVIDIA NVENC)`, `H.265`, `H.265 (NVIDIA NVENC)`, `AV1`, `AV1 (NVIDIA NVENC)`, `ProRes Proxy` | Plain choices use CPU encoding; suffixed choices require NVIDIA NVENC support. |
-| Container | `MP4`, `MKV`, `MOV` | Selects the temporary video container. ProRes Proxy requires MOV or MKV. |
-| Rename | `Auto`, `Copy`, `Custom` | Retained from the source application and applies only to the temporary intermediate. The Save Video node owns the permanent filename. |
-| Custom suffix | Text | Appended to the temporary name when Rename is Custom. |
-| HDR Mode | On/off | Enables 10-bit output and carries input color metadata. Available only with H.265, AV1, or ProRes Proxy. |
+| Output FPS | `23.976`, `25`, `29.97`, `30`, `50`, `59.94`, `60`, `90`, `120` | Fractional choices use exact 1001-based rates. The target may not exceed 6x the source rate. |
+| DLSS engine | `Auto`, `Native DLSSG`, `Cascade` | Auto uses a supported exact native grid and otherwise cascades 2x stages. |
+| Encoding quality | `Auto (Default)`, `Max`, `Best`, `Good` | Controls the temporary encoded `VIDEO`. |
+| Video codec | H.264, H.265, AV1, ProRes Proxy, and NVENC variants | Plain choices use CPU encoding; suffixed choices use NVIDIA NVENC. |
+| Container | `MP4`, `MKV`, `MOV` | ProRes Proxy requires MOV or MKV. |
+| Rename | `Auto`, `Copy`, `Custom` | Applies only to the temporary intermediate. |
+| HDR Mode | On/off | 10-bit output for H.265, AV1, or ProRes Proxy. |
 
-## Output behavior
+**Auto** uses native DLSSG when the source and target rates form an exact multiplier supported by the installed runtime. Otherwise it creates a deterministic cascaded grid and selects frames on the exact requested timeline. Scene cuts reset interpolation history.
 
-The node must encode an intermediate file because ComfyUI's lazy `VIDEO` object needs a streamable source. That intermediate and its JSON report are written only below ComfyUI's temporary directory:
+## Temporary video behavior
+
+Video processing needs an encoded intermediate because ComfyUI's lazy `VIDEO` object requires a streamable source. The nodes write only below ComfyUI's temporary directory:
 
 ```text
 ComfyUI/temp/dlssfg-output-*/
+ComfyUI/temp/dlss5-video-output-*/
 ```
 
-Nothing is written to `ComfyUI/output` by this node. ComfyUI may clear temporary files during its normal cleanup or restart process. Use **Save Video** in the same workflow whenever the result must persist.
+Nothing is written to `ComfyUI/output` by these processing nodes. ComfyUI may clear temporary files during normal cleanup or restart. Use **Save Video** in the same workflow whenever the result must persist.
 
-Only one DLSS interpolation job runs at a time. FFmpeg and native worker processes are launched without visible console windows, and incomplete output is removed when processing fails.
-
-## How engine selection works
-
-- **Auto:** Uses native DLSSG when the source and target rates form an exact multiplier supported by the installed runtime. Otherwise it builds a deterministic cascaded grid and selects the nearest generated timestamp.
-- **Native DLSSG:** Forces the runtime's native multi-frame mode. It rejects unsupported or non-exact FPS ratios instead of silently changing the request.
-- **Cascade:** Runs one or more 2× DLSSG stages, then selects frames on the exact requested output timeline. This supports targets such as 24 FPS to 60 FPS.
-
-The first and last real frames remain bounded endpoints. Scene cuts reset DLSSG history so frames are not generated across detected cuts.
+Native workers and FFmpeg processes launch without visible console windows. Incomplete outputs are removed on failure, and ComfyUI cancellation interrupts processing.
 
 ## Troubleshooting
 
-### Node does not appear
+### Nodes do not appear
 
-Confirm that this README and `__init__.py` are directly inside:
+Make sure `README.md` and `__init__.py` are directly inside the custom-node folder, then restart ComfyUI and inspect its startup console for an import error.
 
-```text
-ComfyUI/custom_nodes/ComfyUI-DLSS-Frame-Interpolation/
-```
+### Runtime DLL is missing or only a few bytes
 
-Then restart ComfyUI and inspect the startup console for an import error.
+The Git LFS objects were not downloaded. Run `git lfs pull` or install from a complete release archive.
 
 ### FFmpeg or FFprobe was not found
 
-Install FFmpeg and place both executables on `PATH`, or set `DLSS_FFMPEG_PATH` and `DLSS_FFPROBE_PATH` before launching ComfyUI.
+Install FFmpeg and place both executables on `PATH`, or set `DLSS_FFMPEG_PATH` and `DLSS_FFPROBE_PATH` before starting ComfyUI.
 
-### Direct NVIDIA DLSS Frame Generation is unavailable
+### Frame Generation is unavailable
 
-Update the NVIDIA driver, enable HAGS in Windows graphics settings, restart Windows, and retry. The diagnostic message and `report_json` identify the detected GPU, driver, runtime, signature status, and native multiplier.
+Update the NVIDIA driver, enable HAGS in Windows graphics settings, restart Windows, and retry. `report_json` includes the detected GPU, driver, runtime, signature status, and supported native multiplier.
 
 ### Native DLSSG rejects the requested FPS
 
@@ -128,28 +182,27 @@ Choose **Auto** or **Cascade**. Native mode accepts only an exact constant-frame
 
 ### HDR input is rejected
 
-Enable HDR Mode and select H.265, AV1, or ProRes Proxy. H.264 is SDR-only in this node.
-
-### ProRes Proxy with MP4 fails validation
-
-Select MOV or MKV. ProRes Proxy is not supported in MP4.
+Enable HDR Mode and select H.265, AV1, or ProRes Proxy. H.264 is SDR-only.
 
 ## Validation
 
-The packaged node has been validated with the portable ComfyUI runtime on Windows:
+The packaged folder was validated with portable ComfyUI on Windows and an RTX 4060 Ti:
 
-- Custom-node loading and schema registration passed.
-- The bundled DLSSG worker and NVIDIA DLL matched the source package hashes.
-- The native capability probe succeeded on an RTX 4060 Ti.
-- A real 640×1024, 24 FPS input produced a 60 FPS cascade result with 165 input frames, 413 output frames, and retained AAC audio.
-- The generated `VIDEO` was confirmed to live under `ComfyUI/temp`, not `ComfyUI/output`.
+- All three V3 nodes loaded and registered.
+- A real `64×64` IMAGE produced a `96×96` IMAGE tensor using Quality mode.
+- A trimmed `640×512` VIDEO produced a `960×768` temporary VIDEO using Quality mode, with AAC audio retained.
+- Frame interpolation was re-run after the shared runtime integration and produced a valid temporary output.
+- Video outputs were confirmed below `ComfyUI/temp`, not `ComfyUI/output`.
+- In the tested upscale runs, feature 18 was confirmed but neural upscaling reported inactive with native fallback. This is surfaced in `report_json` rather than hidden.
 
-This validation demonstrates the tested local configuration; other GPUs, drivers, codecs, resolutions, and HDR sources still depend on their runtime capabilities.
+This is validation of the tested local configuration, not a guarantee for every GPU, driver, source format, resolution, codec, or HDR input.
 
 ## Credits and licenses
 
-The interpolation implementation is derived from [DLSS 5 Visual Enhancer](https://github.com/Merserk/dlss5-visual-enhancer) v5.0 by Merserk. Its MIT license is included as [`LICENSE-DLSS-Visual-Enhancer.txt`](LICENSE-DLSS-Visual-Enhancer.txt).
+The implementation is derived from [DLSS 5 Visual Enhancer](https://github.com/Merserk/dlss5-visual-enhancer) v5.0 by Merserk. Its MIT license is included as [`LICENSE-DLSS-Visual-Enhancer.txt`](LICENSE-DLSS-Visual-Enhancer.txt).
 
-The bundled NVIDIA runtime is governed by the license included at [`bin/runtime/dlssg/LICENSE-NVIDIA-DLSS.txt`](bin/runtime/dlssg/LICENSE-NVIDIA-DLSS.txt). Review that license before redistribution or commercial release. NVIDIA's license includes a commercial-release notification requirement for applications incorporating the DLSS SDK.
+Runtime licenses are included beside their respective files under `bin/runtime/host`, `bin/runtime/dlss`, and `bin/runtime/dlssg`. Review the NVIDIA DLSS license before redistribution or commercial release; it includes a commercial-release notification requirement for applications incorporating the DLSS SDK.
 
-FFmpeg and FFprobe are not included in this repository and remain governed by the license of the user's installation.
+RenoDX and ReShade license texts are included under `bin/runtime/host`.
+
+FFmpeg and FFprobe are not included and remain governed by the license of the user's installation.
