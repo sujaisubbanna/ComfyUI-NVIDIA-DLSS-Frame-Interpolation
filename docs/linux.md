@@ -29,6 +29,67 @@ independent validation. Plain Wine 11.16 with Proton Experimental graphics
 libraries also passed interpolation; the complete recipe below uses GE-Proton.
 No NVIDIA runtime or worker executable is modified.
 
+## Setup helper (recommended)
+
+The optional [setup helper](../scripts/setup_linux.py) automates sections 3–6
+below. First install the prerequisites, clone this custom node with Git LFS,
+and install GE-Proton. It uses Python's standard library; it does not install
+system packages, download DLLs, or require root.
+
+You need Microsoft's **x86-64 `d3dcompiler_47.dll`**. The helper looks in
+`~/.cache/winetricks/d3dcompiler_47/d3dcompiler_47.dll`, which may already exist
+from a previous Winetricks installation. Otherwise obtain the native compiler
+using the [Winetricks recipe below](#native-shader-compiler-and-heap-settings)
+in a separate prefix, then supply its cached DLL with `--compiler /path/to/d3dcompiler_47.dll`.
+Do not pass Wine's builtin compiler. The helper validates PE architecture;
+that check alone does not establish compiler origin or working NR.
+
+From this custom-node directory, adjusting paths and GPU name:
+
+```bash
+python3 scripts/setup_linux.py \
+  --proton "$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-6-x86_64" \
+  --comfyui "$HOME/ComfyUI" \
+  --prefix "$HOME/.local/share/comfyui-dlss-helper" \
+  --gpu 'NVIDIA GeForce RTX 5090' \
+  --verify
+```
+
+Use `--check` instead of `--verify` to validate inputs and preview the paths
+without writing anything. Omit both to configure without rendering tests.
+With exactly one detected GPU, `--gpu` is optional. `--python` selects ComfyUI's
+Python if it is not at `COMFYUI/.venv/bin/python`. `--driver-dir` selects the
+installed NVIDIA Wine bridge directory on other distributions. Run
+`python3 scripts/setup_linux.py --help` for every option.
+
+The helper creates a dedicated prefix, installs the matching GE-Proton
+DXVK/VKD3D-Proton/NVAPI DLLs and native compiler, links the installed driver
+bridge, and writes a launcher with the heap flags, DLL overrides and GPU
+selection. Start ComfyUI with the printed launcher; arguments are forwarded:
+
+```bash
+"$HOME/.local/share/comfyui-dlss-helper/start-comfyui.sh" --listen 127.0.0.1
+```
+
+Rerun the same setup command to refresh DLLs or launcher settings. It only
+accepts a new/empty prefix or one previously marked by this helper. It refuses
+to modify an existing manual or game prefix; select a new directory instead.
+It also stops on conflicting node-local driver links so you can inspect them.
+An interrupted first initialization can be retried, and reruns do not execute
+`wineboot` on an already initialized prefix. Stop renders before updating the
+prefix. The generated launcher is local and is not committed to the repository.
+
+`--verify` runs the three real ComfyUI node tests, including feature-18 log
+verification and output dimensions, frame counts, timing and audio checks.
+Failure returns a nonzero exit status; it does not claim that configuration
+alone proves NR works. These tests retain the direct-NR/fallback distinction
+and do not establish subjective enhancement quality.
+
+The helper was tested from a fresh prefix on the RTX 5090 / driver 610.57.04
+with GE-Proton 11-6: all three ComfyUI node tests passed. Automated tests also
+cover reruns, destination symlinks, quoted launcher paths/arguments, check-only
+behavior, unmanaged-prefix refusal and invalid/LFS-pointer DLLs.
+
 ## 1. Prerequisites
 
 Use a working native Linux ComfyUI installation and its Python environment.
@@ -89,7 +150,8 @@ mkdir -p "$WINEPREFIX"
 Wait for Wine initialization to finish before installing the graphics DLLs.
 Running `wineboot -u` again can replace installed DLLs; reinstall the following
 components if that happens. `WINEPREFIX` must be an absolute path pointing to
-an initialized prefix. The node does not create or configure a prefix for you.
+an initialized prefix. The nodes do not create or configure a prefix automatically; use the helper
+or this manual recipe.
 
 `DLSS_WINE_PATH` is a single executable path, including paths containing spaces.
 It is not a shell command, a string of arguments, or Proton's Python launcher.
@@ -100,7 +162,7 @@ If omitted, the node looks for `wine64`, then `wine`, on `PATH`.
 You need x86-64 builds of [DXVK](https://github.com/doitsujin/dxvk),
 [VKD3D-Proton](https://github.com/HansKristian-Work/vkd3d-proton), and
 [DXVK-NVAPI](https://github.com/jp7677/dxvk-nvapi). Follow their installation
-instructions or use a coherent set bundled with Proton. The following is the
+instructions or use a coherent set bundled with Proton. The following
 recipe uses the same GE-Proton installation selected above:
 
 ```bash
