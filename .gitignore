@@ -52,3 +52,7 @@ desktop.ini
 /bin/runtime/**/_nvngx.dll
 /bin/runtime/**/vkd3d-proton.cache*
 /bin/runtime/**/*.dxvk-cache
+
+# Linux host links, worker copy and configuration are prepared locally.
+/bin/runtime/host-linux/*
+!/bin/runtime/host-linux/dxgi.dll

@@ -1,14 +1,17 @@
-from fractions import Fraction
 import os
-from pathlib import Path
+import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from fractions import Fraction
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 
-from dlss_engine.core.jobs import JobController
+from dlss_engine.core.jobs import BoundedLogBuffer, JobController, drain_bounded_text
+from dlss_engine.core.runtime import DLSSFrameSession
 from dlss_engine.core.workers import WorkerProcess
 from dlss_engine.frame_interpolation import capabilities, native
 
@@ -27,17 +30,19 @@ class SessionTests(unittest.TestCase):
         fixture = Path(__file__).parent / "fixtures/wine_worker.py"
         launcher.write_text(f"#!{sys.executable}\n" + fixture.read_text())
         launcher.chmod(0o755)
-        self.enterContext(patch.dict(os.environ, {
-            "WINEPREFIX": str(prefix), "DLSS_WINE_PATH": str(launcher),
-        }))
+        self.enterContext(
+            patch.dict(
+                os.environ,
+                {
+                    "WINEPREFIX": str(prefix),
+                    "DLSS_WINE_PATH": str(launcher),
+                },
+            )
+        )
         for module in (capabilities, native):
-            self.enterContext(patch.object(
-                module, "DLSSG_WORKER", self.worker
-            ))
+            self.enterContext(patch.object(module, "DLSSG_WORKER", self.worker))
             self.enterContext(patch.object(module, "RUNTIME_DIR", root))
-        self.enterContext(patch.object(
-            capabilities, "DLSSG_RUNTIME", self.worker
-        ))
+        self.enterContext(patch.object(capabilities, "DLSSG_RUNTIME", self.worker))
 
     def test_probe_reads_real_subprocess_json(self):
         result = capabilities._probe_worker()
@@ -84,12 +89,63 @@ class SessionTests(unittest.TestCase):
                 native.DirectDLSSGSession(64, 64, 1, 1, controller)
         self.assertFalse(controller._processes)
 
+    def test_upscale_shutdown_timeout_reaps_stubborn_worker(self):
+        # A real peer ignores SIGTERM after announcing readiness, exercising
+        # escalation to SIGKILL rather than mocking process termination.
+        with patch.dict(os.environ, {"TEST_WORKER_MODE": "shutdown-hang"}):
+            process = WorkerProcess(
+                self.worker,
+                "--video",
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        self.assertEqual(process.stdout.readline(), b"ready\n")
+        controller = JobController()
+        controller.register(process)
+        session = DLSSFrameSession.__new__(DLSSFrameSession)
+        session.worker = process
+        session.controller = controller
+        session.closed = False
+        session._worker_log_buffer = BoundedLogBuffer()
+        session.worker_thread = threading.Thread(
+            target=drain_bounded_text,
+            args=(process.stderr, session._worker_log_buffer),
+            daemon=True,
+        )
+        session.worker_thread.start()
+        wait = process.wait
+        with patch.object(
+            process, "wait", side_effect=lambda timeout=None: wait(timeout=0.1)
+        ):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                session.close()
+        self.assertEqual(process.returncode, -9)
+        self.assertFalse(controller._processes)
+        self.assertTrue(session.closed)
+        self.assertFalse(session.worker_thread.is_alive())
+        self.assertTrue(
+            all(
+                stream.closed
+                for stream in (process.stdin, process.stdout, process.stderr)
+            )
+        )
+        session.close()
+        session.abort()
+
     def test_linux_report_does_not_recommend_hags(self):
         capabilities.clear_capability_cache()
         self.addCleanup(capabilities.clear_capability_cache)
-        with patch.object(capabilities, "detect_gpu", return_value={
-            "name": "Test RTX GPU", "driver": "test", "uuid": "test",
-        }):
+        with patch.object(
+            capabilities,
+            "detect_gpu",
+            return_value={
+                "name": "Test RTX GPU",
+                "driver": "test",
+                "uuid": "test",
+            },
+        ):
             result = capabilities.probe_frame_interpolation_capabilities()
         self.assertTrue(result.available)
         self.assertNotIn("HAGS is disabled", result.detail)

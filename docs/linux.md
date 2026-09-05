@@ -150,7 +150,7 @@ other installation failures as successful installation.
 
 ### ReShade descriptor compatibility fix
 
-The bundled `bin/runtime/host/dxgi.dll` must be the build containing the
+Linux selects `bin/runtime/host-linux/dxgi.dll`, the build containing the
 [VKD3D descriptor fix](../patches/README.md). The original ReShade extension
 hooks also translate descriptors allocated on an unwrapped device, causing
 NR to fault inside a CUDA descriptor lookup. The patch preserves native
@@ -165,7 +165,16 @@ The bundled carrier is ReShade `6.8.0.1` (unofficial), produced by
 [this source build](https://github.com/sujaisubbanna/ComfyUI-NVIDIA-DLSS-Frame-Interpolation/actions/runs/33919628924).
 Its SHA-256 is
 `596e4a61b96540683fdb92f80c72c96637247276a34615c3c26a35ba78725e80`.
-Verify it with `sha256sum bin/runtime/host/dxgi.dll` from the node directory.
+Verify it with `sha256sum bin/runtime/host-linux/dxgi.dll` from the node directory.
+
+Windows continues to use the unchanged upstream `bin/runtime/host/dxgi.dll`
+(SHA-256 `0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7`).
+Before the first Linux render, Python copies the small worker executable into
+`host-linux/` and links the shared add-on, NR DLL and local driver bridge there.
+This makes Wine load the Linux carrier beside the worker. The Linux host's
+`ReShade.ini` and `ReShade.log` are separate, locally generated files; the
+worker writes its NR settings on each run. The node directory must be writable.
+No NVIDIA binary is duplicated or downloaded during preparation.
 
 ## 5. Make NVIDIA's NGX bridge discoverable
 
@@ -194,7 +203,7 @@ resolved `NVSDK_NGX_D3D12_Init_with_ProjectID failed: 0xBAD00001`.
 
 **Do not replace `bin/runtime/host/nvngx.dll`.** Despite its name, that bundled
 file is the enhancement worker executable. Likewise, retain the bundled
-`bin/runtime/host/dxgi.dll`: it is the ReShade carrier, not the DXVK DLL installed
+`bin/runtime/host-linux/dxgi.dll`: it is the ReShade carrier, not the DXVK DLL installed
 in the prefix. Driver bridges are not redistributed by this project.
 
 ## 6. Start native ComfyUI
@@ -288,7 +297,7 @@ native shader compiler, and Wine heap settings together.
 
 - **NR access violation:** verify the patched carrier is present, the native
   compiler override is active, and both `WINE_HEAP_*` flags are inherited by
-  ComfyUI. Keep `bin/runtime/host/ReShade.log` and worker diagnostics.
+  ComfyUI. Keep `bin/runtime/host-linux/ReShade.log` and worker diagnostics.
 - **Shader error mentioning `isnan`:** Wine's built-in compiler is being used;
   install and select native `d3dcompiler_47` as above.
 - **Wine not found / invalid prefix:** export `DLSS_WINE_PATH` and `WINEPREFIX`

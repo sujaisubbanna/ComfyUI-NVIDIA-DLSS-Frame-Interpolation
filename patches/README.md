@@ -35,3 +35,6 @@ msbuild ReShade.sln /m /p:Configuration=Release /p:Platform=64-bit
 This fixes descriptor handling, not Wine's separate heap compatibility issue.
 The Linux guide documents the required environment and the distinction
 between NR upscaling and native-resolution NR after the DLSS SR pass.
+
+Install the rebuilt `ReShade64.dll` as `bin/runtime/host-linux/dxgi.dll`.
+The Windows carrier in `bin/runtime/host/dxgi.dll` remains the upstream binary.

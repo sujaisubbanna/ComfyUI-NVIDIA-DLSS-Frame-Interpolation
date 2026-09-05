@@ -2,6 +2,7 @@
 
 import json
 import os
+import signal
 import struct
 import sys
 import time
@@ -15,6 +16,10 @@ def read_exact(size):
 
 
 mode = os.environ.get("TEST_WORKER_MODE", "success")
+if mode == "shutdown-hang":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    print("ready", flush=True)
+    time.sleep(60)
 if mode == "hang":
     time.sleep(60)
 if sys.argv[2] == "--probe":
@@ -34,9 +39,7 @@ while True:
     header = sys.stdin.buffer.read(32)
     if not header:
         break
-    magic, index, reset, _, numerator, denominator = struct.unpack(
-        "<4I2q", header
-    )
+    magic, index, reset, _, numerator, denominator = struct.unpack("<4I2q", header)
     assert magic == 0x31464746 and denominator > 0
     color = read_exact(width * height * 4)
     motion = read_exact(width * height * 4)
