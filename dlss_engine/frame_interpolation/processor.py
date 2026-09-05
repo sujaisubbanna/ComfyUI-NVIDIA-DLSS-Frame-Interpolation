@@ -5,6 +5,7 @@ import math
 import os
 import shutil
 import time
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -464,12 +465,15 @@ def interpolate_video(
                 elapsed_seconds=elapsed,
                 timings=timings,
             )
-        except Exception as exc:
+        except BaseException as exc:
             if output and output.exists():
-                output.unlink()
+                with suppress(OSError):
+                    output.unlink()
             if controller.cancel.is_set():
                 raise Cancelled("Frame interpolation stopped by user.") from exc
             if isinstance(exc, Cancelled):
+                raise
+            if not isinstance(exc, Exception):
                 raise
             logs_root.mkdir(parents=True, exist_ok=True)
             failure_stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{time.time_ns() % 1_000_000:06d}"
@@ -491,8 +495,10 @@ def interpolate_video(
             raise RuntimeError(f"{exc}\nDiagnostic report: {failure_path.resolve()}") from exc
         finally:
             for session in sessions:
-                session.close()
+                with suppress(Exception):
+                    session.close()
             if encoder is not None and encoder.poll() is None:
-                encoder.terminate()
+                with suppress(OSError):
+                    encoder.terminate()
             if job_dir and job_dir.parent == jobs_root and job_dir.exists():
                 shutil.rmtree(job_dir, ignore_errors=True)

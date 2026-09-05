@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import suppress
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import time
 from types import SimpleNamespace
@@ -18,7 +19,7 @@ from comfy_api.latest import ComfyExtension, InputImpl, Types, io, ui
 
 from .dlss_engine.core.ffmpeg import CODEC_CHOICES, ENCODING_QUALITIES
 from .dlss_engine.core.gpu_selection import resolve_runtime_ai_gpu
-from .dlss_engine.core.jobs import active_job
+from .dlss_engine.core.jobs import active_job, cancel_active_job
 from .dlss_engine.core.runtime import (
     DLSS_MODEL_PRESETS,
     NR_PRESETS,
@@ -45,7 +46,11 @@ def _progress_callback():
     progress_bar = comfy.utils.ProgressBar(1000)
 
     def progress(value: float, _message: str) -> None:
-        comfy.model_management.throw_exception_if_processing_interrupted()
+        try:
+            comfy.model_management.throw_exception_if_processing_interrupted()
+        except comfy.model_management.InterruptProcessingException:
+            cancel_active_job()
+            raise
         progress_bar.update_absolute(round(float(value) * 1000), 1000)
 
     return progress_bar, progress
@@ -134,6 +139,10 @@ class NvidiaDLSSFrameInterpolation(io.ComfyNode):
         )
 
     @classmethod
+    def cancel_current_job(cls) -> str:
+        return cancel_active_job()
+
+    @classmethod
     def execute(
         cls,
         video: io.Video.Type,
@@ -159,20 +168,24 @@ class NvidiaDLSSFrameInterpolation(io.ComfyNode):
             rename_mode=str(rename),
             custom_suffix=str(custom_suffix),
         )
-        input_context, input_path = _temporary_video_input(video, "dlssfg-input-")
-        with input_context:
-            result = interpolate_video(
-                input_path,
-                options,
-                progress,
-                output_directory=output_dir,
-                jobs_directory=temp_base / "dlss_frame_interpolation_jobs",
-                logs_directory=output_dir / "reports",
-            )
-        output_path = Path(result.output_path).resolve()
-        report_text = Path(result.report_path).read_text(encoding="utf-8")
-        json.loads(report_text)
-        return _preview_output(output_path, report_text)
+        try:
+            input_context, input_path = _temporary_video_input(video, "dlssfg-input-")
+            with input_context:
+                result = interpolate_video(
+                    input_path,
+                    options,
+                    progress,
+                    output_directory=output_dir,
+                    jobs_directory=temp_base / "dlss_frame_interpolation_jobs",
+                    logs_directory=output_dir / "reports",
+                )
+            output_path = Path(result.output_path).resolve()
+            report_text = Path(result.report_path).read_text(encoding="utf-8")
+            json.loads(report_text)
+            return _preview_output(output_path, report_text)
+        except BaseException:
+            shutil.rmtree(output_dir, ignore_errors=True)
+            raise
 
 
 class NvidiaDLSSVideoUpscale(io.ComfyNode):
@@ -200,6 +213,10 @@ class NvidiaDLSSVideoUpscale(io.ComfyNode):
                 io.String.Output("report", display_name="report_json"),
             ],
         )
+
+    @classmethod
+    def cancel_current_job(cls) -> str:
+        return cancel_active_job()
 
     @classmethod
     def execute(
@@ -242,29 +259,33 @@ class NvidiaDLSSVideoUpscale(io.ComfyNode):
             rename_mode=str(rename),
             custom_suffix=str(custom_suffix),
         )
-        input_context, input_path = _temporary_video_input(video, "dlss5-video-input-")
-        with input_context:
-            result = convert_video(
-                input_path,
-                options,
-                progress,
-                output_directory=output_dir,
-                jobs_directory=temp_base / "dlss_video_upscale_jobs",
-                logs_directory=output_dir / "reports",
-            )
-        output_path = Path(result.output_path).resolve()
-        report_path = Path(result.report_path).resolve()
-        report = json.loads(report_path.read_text(encoding="utf-8"))
-        report["node_policy"] = {"require_neural_upscaling": bool(require_neural_upscaling)}
-        if require_neural_upscaling and options.upscaling_factor > 1.0 and not report["nr_upscaling_active"]:
-            output_path.unlink(missing_ok=True)
-            raise RuntimeError(
-                "NVIDIA completed the frame processing but reported neural upscaling inactive. "
-                "Disable Require Neural Upscaling to accept the native fallback, or change the "
-                "source resolution, upscale mode, NVIDIA driver, or runtime configuration."
-            )
-        report_text = json.dumps(report, indent=2)
-        return _preview_output(output_path, report_text)
+        try:
+            input_context, input_path = _temporary_video_input(video, "dlss5-video-input-")
+            with input_context:
+                result = convert_video(
+                    input_path,
+                    options,
+                    progress,
+                    output_directory=output_dir,
+                    jobs_directory=temp_base / "dlss_video_upscale_jobs",
+                    logs_directory=output_dir / "reports",
+                )
+            output_path = Path(result.output_path).resolve()
+            report_path = Path(result.report_path).resolve()
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["node_policy"] = {"require_neural_upscaling": bool(require_neural_upscaling)}
+            if require_neural_upscaling and options.upscaling_factor > 1.0 and not report["nr_upscaling_active"]:
+                output_path.unlink(missing_ok=True)
+                raise RuntimeError(
+                    "NVIDIA completed the frame processing but reported neural upscaling inactive. "
+                    "Disable Require Neural Upscaling to accept the native fallback, or change the "
+                    "source resolution, upscale mode, NVIDIA driver, or runtime configuration."
+                )
+            report_text = json.dumps(report, indent=2)
+            return _preview_output(output_path, report_text)
+        except BaseException:
+            shutil.rmtree(output_dir, ignore_errors=True)
+            raise
 
 
 class NvidiaDLSSImageUpscale(io.ComfyNode):

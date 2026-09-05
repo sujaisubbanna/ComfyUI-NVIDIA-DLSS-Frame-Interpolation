@@ -196,7 +196,8 @@ def convert_video(
                 f"{source.stem}_{output_kind}_{stamp}",
             )
             require_available_output(output)
-            temp_video = job_dir / "processed-video.mkv"
+            # Keep the final container's timescale through the stream-copy mux.
+            temp_video = job_dir / f"processed-video{extension}"
             native = resolve_native_settings(options)
             _report_progress(0.01, f"Starting feature 18 on {gpu['display_name']}")
 
@@ -603,7 +604,7 @@ def convert_video(
                 options.dlss_model_preset,
                 session.applied_dlss_model_preset,
             )
-        except Exception as exc:
+        except BaseException as exc:
             was_cancelled = controller.cancel.is_set()
             pipeline_stop.set()
             if controller.cancel.is_set():
@@ -625,10 +626,13 @@ def convert_video(
                 with suppress(OSError):
                     encoder.stdin.close()
             if output and output.exists():
-                output.unlink()
+                with suppress(OSError):
+                    output.unlink()
             if was_cancelled and not isinstance(exc, Cancelled):
                 raise Cancelled("Render stopped by user.") from exc
             if isinstance(exc, Cancelled):
+                raise
+            if not isinstance(exc, Exception):
                 raise
             worker_logs = session.worker_logs if session is not None else []
             reshade_lines = session.reshade_diagnostics() if session is not None else []
