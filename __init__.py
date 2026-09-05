@@ -16,6 +16,9 @@ import comfy.utils
 import folder_paths
 from comfy_api.latest import ComfyExtension, InputImpl, Types, io, ui
 
+from .dlss_engine.core.composition import (
+    compose_sdr, composition_report, validate_detail_strength,
+)
 from .dlss_engine.core.ffmpeg import CODEC_CHOICES, ENCODING_QUALITIES
 from .dlss_engine.core.gpu_selection import resolve_runtime_ai_gpu
 from .dlss_engine.core.jobs import active_job
@@ -105,6 +108,12 @@ def _neural_inputs() -> list:
         io.Float.Input("skin_structure_strength", default=-1.0, min=-1.0, max=2.0, step=0.05),
         io.Boolean.Input("automatic_mask", default=False),
         io.Combo.Input("dlss_model_preset", options=list(DLSS_MODEL_PRESETS), default="Default"),
+        io.Float.Input(
+            "output_detail_strength", default=1.0, min=1.0, max=2.0,
+            step=0.05, optional=True,
+            tooltip="SDR output composition: 1 preserves worker output; "
+            "2 amplifies brightness changes. Separate from NR intensity.",
+        ),
     ]
 
 
@@ -221,11 +230,14 @@ class NvidiaDLSSVideoUpscale(io.ComfyNode):
         rename: str,
         custom_suffix: str,
         hdr_mode: bool,
+        output_detail_strength: float = 1.0,
     ) -> io.NodeOutput:
+        output_detail_strength = validate_detail_strength(output_detail_strength)
         _progress_bar, progress = _progress_callback()
         temp_base = Path(folder_paths.get_temp_directory()).resolve()
         output_dir = Path(tempfile.mkdtemp(prefix="dlss5-video-output-", dir=temp_base))
         options = ConversionOptions(
+            output_detail_strength=output_detail_strength,
             nr_preset=str(nr_preset),
             nr_style=str(nr_style),
             nr_intensity=float(nr_intensity),
@@ -301,7 +313,9 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
         skin_structure_strength: float,
         automatic_mask: bool,
         dlss_model_preset: str,
+        output_detail_strength: float = 1.0,
     ) -> io.NodeOutput:
+        output_detail_strength = validate_detail_strength(output_detail_strength)
         if image.ndim != 4 or image.shape[-1] not in (1, 3, 4):
             raise ValueError("IMAGE must have shape [batch, height, width, channels] with 1, 3, or 4 channels.")
         batch, input_height, input_width, channels = map(int, image.shape)
@@ -368,6 +382,9 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
                         reset=True,
                         pts=index,
                     )
+                    processed = compose_sdr(
+                        rgba, processed, output_detail_strength
+                    )
                     if channels == 4:
                         processed[..., 3] = cv2.resize(
                             alpha,
@@ -400,6 +417,7 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
             "feature_id": 18,
             "feature_18_confirmed": True,
             "images_processed": batch,
+            "output_composition": composition_report(output_detail_strength),
             "input_dimensions": {"width": input_width, "height": input_height},
             "negotiated_render_dimensions": {"width": session.render_width, "height": session.render_height},
             "output_dimensions": {"width": output_width, "height": output_height},

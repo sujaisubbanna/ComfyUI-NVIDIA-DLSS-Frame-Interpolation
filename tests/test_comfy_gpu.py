@@ -78,11 +78,14 @@ class ComfyNodeGPUTests(unittest.TestCase):
         result = self.nodes.NvidiaDLSSImageUpscale.execute(
             image, "1.5× (Quality)", False, "Default", "Default",
             1.0, 1.0, 1.0, -1.0, False, "Default",
+            output_detail_strength=2.0,
         )
         self.assertEqual(tuple(result.result[0].shape), (2, 540, 960, 3))
         self.assertTrue(torch.isfinite(result.result[0]).all())
         report = json.loads(result.result[1])
         self.assertTrue(report["feature_18_confirmed"])
+        self.assertEqual(report["output_composition"]["output_detail_strength"], 2.0)
+        self.assertTrue(report["output_composition"]["applied"])
         self.assertEqual(report["images_processed"], 2)
         # The existing runtime may execute NR at output resolution after SR.
         # Keep that distinction visible instead of accepting a plain resize.
@@ -96,9 +99,12 @@ class ComfyNodeGPUTests(unittest.TestCase):
             "1.5× (Quality)", False, "Default", "Default",
             1.0, 1.0, 1.0, -1.0, False, "Default", "Max", "H.264", "MP4",
             "Auto", "_DLSSNR", False,
+            output_detail_strength=2.0,
         )
         report = self.check_video(result, (960, 540), 12, 30)
         self.assertTrue(report["feature_18_confirmed"])
+        self.assertEqual(report["output_composition"]["output_detail_strength"], 2.0)
+        self.assertTrue(report["output_composition"]["applied"])
         self.assertTrue(
             report["nr_upscaling_active"] or report["nr_native_fallback"]
         )

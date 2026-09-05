@@ -14,7 +14,7 @@ The Linux setup requires the patched ReShade carrier documented below.
 - Frame interpolation: native and cascaded 640×360, 30→60 FPS processing,
   with 12 input frames and 24 decoded output frames; audio retained.
 - Image upscale: a batch of two 640×360 images produced two 960×540 images
-  with confirmed signed DLSSNR feature-18 execution.
+  with confirmed DLSSNR feature-18 execution.
 - Video upscale: 640×360→960×540, retaining 12 frames at 30 FPS and audio,
   with confirmed feature-18 execution.
 
@@ -334,3 +334,32 @@ DLSS_COMFYUI_PATH="$HOME/ComfyUI" DLSS_RUN_GPU_TESTS=1 \
 These tests check image-batch dimensions and finite pixels, confirmed NR
 execution, and decoded video dimensions/frame count/FPS/audio. They retain
 the distinction between direct NR upscaling and the runtime's NR fallback.
+
+## SDR composition in ComfyUI
+
+Restart ComfyUI after updating the node. In **NVIDIA DLSS Image Upscale** or
+**NVIDIA DLSS Video Upscale**, set `nr_style` to `Cinematic`, `nr_intensity`
+to `2`, and the new `output_detail_strength` to `2`. Use `1` for the
+unmodified worker output. Old workflows and callers default to `1`.
+
+For a full video chain: Load Video → Frame Interpolation (60 FPS) → Video
+Upscale (2× for 1080p→4K, HDR off, composition 2) → Save Video. Check the
+report for both feature-18 evidence and `output_composition.applied: true`.
+The latter reports a CPU output adjustment, not another GPU inference pass.
+A successful NR API call alone does not establish Windows-equivalent quality.
+
+The tested two-second SDR comparison used a direct NR renderer and the actual
+OptiScaler composition shader on RTX 5090. The ComfyUI control applies a
+bounded brightness-ratio adjustment to the existing worker's output; it does
+not install OptiScaler or reproduce its game hooks, exposure measurement,
+HDR bridge, or all color controls. Avoid double-applying it to media already
+processed at increased output strength.
+
+The bundled model matches the community SF-v2 runtime hash
+`6eb209e764f39872625debd6abaf45e2bb6322f6f270f781f70c059ae30b3927`.
+The alternate model tested by NapXDD has hash
+`e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e`.
+A controlled direct-renderer comparison produced identical decoded pixels in
+all 60 frames with these two builds. This rules out that DLL difference for
+that clip and setup, not all driver/runtime issues. A log mentioning the
+signed snippet is not independent verification of the DLL's signature.

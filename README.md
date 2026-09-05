@@ -226,3 +226,27 @@ Runtime licenses are included beside their respective files under `bin/runtime/h
 RenoDX and ReShade license texts are included under `bin/runtime/host`.
 
 FFmpeg and FFprobe are not included and remain governed by the license of the user's installation.
+
+### SDR output detail strength
+
+The image and video upscale nodes expose optional **output_detail_strength**
+(default **1.0**, maximum **2.0**). One leaves the worker output byte-for-byte
+unchanged, including existing workflows. Two amplifies brightness differences
+between the source and rendered output using a bounded luminance ratio. This
+is an output adjustment, separate from **nr_intensity**, and does not run the
+neural model again or prove stronger neural synthesis.
+
+Start with **Cinematic**, **nr_intensity = 2**, and **output_detail_strength = 2**
+to reproduce the stronger composition setting explored in the Linux tests.
+Compare against strength 1 on the same clip. The adjustment runs on the CPU
+using NumPy, in small row tiles; DLSS/NR inference remains on the NVIDIA GPU.
+It preserves alpha and video timing/audio. With upscaling, the reference is
+resized to the output size, so the adjustment includes SR changes as well as NR.
+HDR mode requires strength 1; this composition has only been validated for SDR.
+
+Reports include `output_composition` with the strength, method and execution
+location. Feature-18 evidence describes model execution, not visual parity with
+Windows. The control implements SDR brightness-ratio amplification; it is not
+a bundled OptiScaler backend or its full game exposure/color pipeline. The
+investigation used [OptiScaler's shader](https://github.com/Dagherbou/OptiScaler_DLSSNR/blob/dlss-neural-rendering/OptiScaler/shaders/dlssnr/precompile/dlssnr.hlsl)
+as a separate GPU reference, and no GPL shader or binary is redistributed here.
