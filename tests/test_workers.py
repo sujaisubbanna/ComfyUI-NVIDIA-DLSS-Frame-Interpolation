@@ -1,12 +1,14 @@
+import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+from dlss_engine.core import workers
 from dlss_engine.core.workers import (
     WorkerProcess,
     validate_binary,
@@ -18,6 +20,13 @@ class WorkerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="dlss test ")
         self.addCleanup(self.temp.cleanup)
+        self.enterContext(
+            patch.object(
+                workers,
+                "CONFIG_PATH",
+                Path(self.temp.name) / "linux-runtime.json",
+            )
+        )
         self.root = Path(self.temp.name)
         self.worker = self.root / "worker.exe"
         self.worker.write_bytes(b"MZ" + bytes(128))
@@ -44,6 +53,35 @@ class WorkerTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             with self.assertRaisesRegex(RuntimeError, "DLSS_WINE_PATH"):
                 worker_launch(self.worker, "--probe")
+
+    def test_invalid_saved_settings_fail_with_file_path(self):
+        for content in (
+            "{",
+            '{"version": 2, "environment": {}}',
+            '{"version": 1, "environment": {"LD_PRELOAD": "x"}}',
+            '{"version": 1, "environment": {"WINEPREFIX": 3}}',
+        ):
+            with self.subTest(content=content):
+                workers.CONFIG_PATH.write_text(content)
+                with self.assertRaisesRegex(
+                    RuntimeError, "linux-runtime.json"
+                ):
+                    workers.linux_worker_environment()
+
+    def test_saved_settings_override_ambient_wine_only_for_worker(self):
+        workers.CONFIG_PATH.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "environment": {"WINEPREFIX": str(self.prefix)},
+                }
+            )
+        )
+        with patch.dict(os.environ, {"WINEPREFIX": "/unrelated-game-prefix"}):
+            before = dict(os.environ)
+            result = workers.linux_worker_environment()
+            self.assertEqual(result["WINEPREFIX"], str(self.prefix))
+            self.assertEqual(dict(os.environ), before)
 
     def test_lfs_pointer_and_invalid_binary_fail_before_launch(self):
         self.worker.write_text("version https://git-lfs.github.com/spec/v1\n")
@@ -74,8 +112,11 @@ class WorkerTests(unittest.TestCase):
         payload = bytes(range(256)) * 8192
         with patch.dict(os.environ, env):
             with WorkerProcess(
-                self.worker, "--serve", stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                self.worker,
+                "--serve",
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             ) as process:
                 output, errors = process.communicate(payload, timeout=10)
         self.assertEqual(process.returncode, 0)

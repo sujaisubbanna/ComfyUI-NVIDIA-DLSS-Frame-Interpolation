@@ -56,3 +56,6 @@ desktop.ini
 # Linux host links, worker copy and configuration are prepared locally.
 /bin/runtime/host-linux/*
 !/bin/runtime/host-linux/dxgi.dll
+
+# Per-installation Linux worker settings written by setup.
+/linux-runtime.json

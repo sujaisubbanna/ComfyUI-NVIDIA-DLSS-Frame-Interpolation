@@ -2,12 +2,71 @@
 
 from __future__ import annotations
 
+import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
 import sys
+from pathlib import Path
+
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "linux-runtime.json"
+LINUX_ENV_KEYS = frozenset(
+    {
+        "WINEPREFIX",
+        "DLSS_WINE_PATH",
+        "WINESERVER",
+        "WINEDEBUG",
+        "WINE_HEAP_DELAY_FREE",
+        "WINE_HEAP_ZERO_MEMORY",
+        "WINEDLLOVERRIDES",
+        "NVIDIA_WINE_DLL_DIR",
+        "DXVK_ENABLE_NVAPI",
+        "DXVK_CONFIG",
+        "DXVK_FILTER_DEVICE_NAME",
+        "VKD3D_FILTER_DEVICE_NAME",
+    }
+)
+
+
+def linux_worker_environment() -> dict[str, str]:
+    """Apply local setup only to workers, never to ComfyUI's environment."""
+    env = os.environ.copy()
+    try:
+        raw = CONFIG_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return env  # Existing manual environment setup remains supported.
+    except OSError as exc:
+        raise RuntimeError(
+            f"Cannot read Linux settings: {CONFIG_PATH}"
+        ) from exc
+    try:
+        config = json.loads(raw)
+        if (
+            not isinstance(config, dict)
+            or config.get("version") != 1
+            or set(config) != {"version", "environment"}
+        ):
+            raise ValueError("expected version 1 and environment")
+        settings = config["environment"]
+        if not isinstance(settings, dict) or not settings:
+            raise ValueError("environment must be a nonempty object")
+        for key, value in settings.items():
+            if (
+                key not in LINUX_ENV_KEYS
+                or not isinstance(value, str)
+                or "\0" in value
+            ):
+                raise ValueError(f"invalid setting: {key}")
+        # Saved setup is authoritative: unrelated Wine settings inherited
+        # from a desktop or shell must not select a different prefix/runtime.
+        env.update(settings)
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(
+            f"Invalid Linux settings in {CONFIG_PATH}: {exc}. "
+            "Rerun scripts/setup_linux.py or remove the file for manual setup."
+        ) from exc
+    return env
 
 
 def validate_binary(path: Path) -> None:
@@ -34,7 +93,7 @@ def worker_launch(path: Path, *args: str) -> tuple[list[str], dict]:
     if sys.platform != "linux":
         raise RuntimeError("DLSS workers support Windows or Linux with Wine.")
 
-    env = os.environ.copy()
+    env = linux_worker_environment()
     prefix = env.get("WINEPREFIX", "")
     if not prefix or not Path(prefix).is_absolute():
         raise RuntimeError(
@@ -47,8 +106,10 @@ def worker_launch(path: Path, *args: str) -> tuple[list[str], dict]:
             "VKD3D-Proton and DXVK-NVAPI as described in docs/linux.md."
         )
     configured = env.get("DLSS_WINE_PATH")
-    wine = shutil.which(configured) if configured else (
-        shutil.which("wine64") or shutil.which("wine")
+    wine = (
+        shutil.which(configured)
+        if configured
+        else (shutil.which("wine64") or shutil.which("wine"))
     )
     if not wine:
         raise RuntimeError(

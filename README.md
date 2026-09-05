@@ -44,11 +44,12 @@ Hardware-accelerated GPU scheduling (HAGS) is recommended for Frame Generation o
 ### Linux
 
 Use the [Linux setup helper](docs/linux.md#setup-helper-recommended) to prepare
-a dedicated Wine prefix, generate a ComfyUI launcher, and optionally verify all
+a dedicated Wine prefix, save worker settings, and optionally verify all
 three nodes. The [Linux guide](docs/linux.md) also includes manual setup. ComfyUI,
 PyTorch, and FFmpeg run natively; only the bundled Windows workers run through
-Wine, DXVK, VKD3D-Proton, and DXVK-NVAPI. A configured `WINEPREFIX` is required;
-`DLSS_WINE_PATH` optionally selects the Wine executable.
+Wine, DXVK, VKD3D-Proton, and DXVK-NVAPI. After setup, start ComfyUI normally;
+the saved settings apply only to Linux workers. Manual `WINEPREFIX` and
+`DLSS_WINE_PATH` environment configuration is also supported.
 
 All three nodes have been tested on an RTX 5090 with driver 610.57.04 and
 GE-Proton 11-6: native/cascaded frame interpolation, image-batch upscaling,

@@ -2,6 +2,7 @@
 """Configure the documented GE-Proton recipe without root or downloads."""
 
 import argparse
+import json
 import os
 import shlex
 import shutil
@@ -223,9 +224,9 @@ def main(argv=None):
         "DXVK_FILTER_DEVICE_NAME": gpu,
         "VKD3D_FILTER_DEVICE_NAME": gpu,
     }
-    launcher = args.prefix / "start-comfyui.sh"
+    config_path = ROOT / "linux-runtime.json"
     print(f"Wine: {wine}\nPrefix: {args.prefix}\nGPU: {gpu}")
-    print(f"ComfyUI: {args.comfyui}\nLauncher: {launcher}", flush=True)
+    print(f"ComfyUI: {args.comfyui}\nSettings: {config_path}", flush=True)
     if args.check:
         print("Input checks passed. No files changed; GPU rendering untested.")
         return
@@ -247,19 +248,33 @@ def main(argv=None):
     for link in links:
         if not link.is_symlink():
             link.symlink_to(bridge)
-    lines = ["#!/bin/sh", "set -eu"]
-    lines.extend(f"export {k}={shlex.quote(v)}" for k, v in settings.items())
-    lines.extend(
-        [
-            f"cd {shlex.quote(str(args.comfyui))}",
-            f'exec {shlex.quote(str(python))} main.py "$@"',
-            "",
-        ]
-    )
-    launcher.write_text("\n".join(lines))
-    launcher.chmod(0o700)
-    print(f"Configured. Start ComfyUI with: {shlex.quote(str(launcher))}")
+    # Replace the complete settings atomically so a running node can never
+    # observe a partial JSON write. This file is local and ignored by Git.
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=ROOT, delete=False
+    ) as stream:
+        temporary = Path(stream.name)
+        try:
+            json.dump(
+                {"version": 1, "environment": settings}, stream, indent=2
+            )
+            stream.write("\n")
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(temporary, config_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    print("Configured. Start ComfyUI normally; no special launcher is needed.")
     if args.verify:
+        # Deliberately remove setup variables: the tests must discover the
+        # saved settings just as normally launched ComfyUI does.
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in settings
+        }
         env.update(
             DLSS_COMFYUI_PATH=str(args.comfyui), DLSS_RUN_COMFY_GPU_TESTS="1"
         )

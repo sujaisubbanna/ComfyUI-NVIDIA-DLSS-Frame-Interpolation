@@ -64,20 +64,36 @@ installed NVIDIA Wine bridge directory on other distributions. Run
 
 The helper creates a dedicated prefix, installs the matching GE-Proton
 DXVK/VKD3D-Proton/NVAPI DLLs and native compiler, links the installed driver
-bridge, and writes a launcher with the heap flags, DLL overrides and GPU
-selection. Start ComfyUI with the printed launcher; arguments are forwarded:
+bridge, and saves the heap flags, DLL overrides and GPU selection in the
+custom node’s local `linux-runtime.json`. Start ComfyUI normally:
 
 ```bash
-"$HOME/.local/share/comfyui-dlss-helper/start-comfyui.sh" --listen 127.0.0.1
+cd "$HOME/ComfyUI"
+source .venv/bin/activate
+python main.py
 ```
 
-Rerun the same setup command to refresh DLLs or launcher settings. It only
+Rerun the same setup command to refresh DLLs or saved settings. It only
 accepts a new/empty prefix or one previously marked by this helper. It refuses
 to modify an existing manual or game prefix; select a new directory instead.
 It also stops on conflicting node-local driver links so you can inspect them.
 An interrupted first initialization can be retried, and reruns do not execute
 `wineboot` on an already initialized prefix. Stop renders before updating the
-prefix. The generated launcher is local and is not committed to the repository.
+prefix. The settings file is ignored by Git and contains machine-specific paths.
+
+Only Linux worker subprocesses receive these settings. ComfyUI, PyTorch,
+FFmpeg and other custom nodes retain their normal environment. Saved settings
+take precedence over inherited Wine variables, preventing an unrelated shell
+or desktop Wine prefix from overriding the configured runtime. Without the
+file, the manual environment setup below remains supported. Windows does not
+read this file. Invalid JSON, unsupported versions and unknown environment
+keys produce an actionable error instead of silently falling back.
+
+If you used the earlier helper that generated `start-comfyui.sh`, rerun setup
+with the same prefix to save the settings, then restart ComfyUI using your
+normal command or desktop shortcut. The old launcher is no longer needed;
+setup leaves existing scripts untouched. Moving this custom-node directory to
+another machine requires running setup there with its own paths.
 
 `--verify` runs the three real ComfyUI node tests, including feature-18 log
 verification and output dimensions, frame counts, timing and audio checks.
@@ -87,8 +103,9 @@ and do not establish subjective enhancement quality.
 
 The helper was tested from a fresh prefix on the RTX 5090 / driver 610.57.04
 with GE-Proton 11-6: all three ComfyUI node tests passed. Automated tests also
-cover reruns, destination symlinks, quoted launcher paths/arguments, check-only
-behavior, unmanaged-prefix refusal and invalid/LFS-pointer DLLs.
+cover reruns, destination symlinks, saved paths containing spaces/quotes,
+worker-only environment handling, invalid settings, check-only behavior,
+unmanaged-prefix refusal and invalid/LFS-pointer DLLs.
 
 ## 1. Prerequisites
 
@@ -270,6 +287,9 @@ in the prefix. Driver bridges are not redistributed by this project.
 
 ## 6. Start native ComfyUI
 
+If you used the helper, launch ComfyUI normally; the settings are already saved.
+The environment instructions in this section apply to manual setup only.
+
 On a multi-GPU machine, select the same NVIDIA adapter for DXVK and
 VKD3D-Proton. For example:
 
@@ -283,7 +303,8 @@ alone does not do that. The existing node uses automatic GPU selection, so
 check worker logs on multi-GPU systems rather than relying only on the Python
 GPU label in the report.
 
-Start ComfyUI from the same terminal so it inherits the prefix and overrides:
+For manual setup, start ComfyUI from the same terminal so workers inherit the
+prefix and overrides:
 
 ```bash
 cd "$HOME/ComfyUI"
@@ -297,8 +318,9 @@ Linux FFmpeg and FFprobe. The existing `DLSS_FFMPEG_PATH` and
 
 ## Verify frame interpolation
 
-Before starting ComfyUI, with its Python environment activated and the Wine
-variables exported, run this from the custom-node directory:
+Before starting ComfyUI, with its Python environment activated and either
+saved settings or the manual Wine variables, run this from the custom-node
+directory:
 
 ```bash
 python - <<'PY'
@@ -372,7 +394,8 @@ native shader compiler, and Wine heap settings together.
   with `winetricks -q vcrun2022` in this prefix, checking installation success.
 - **Driver update:** verify the `_nvngx.dll` links still resolve to the new
   driver's bridge and that its Linux NGX library is installed.
-- **Need more logs:** export `WINEDEBUG=+seh,+loaddll` before launching. It can
+- **Need more logs:** set `WINEDEBUG` to `+seh,+loaddll` in the saved environment
+  object (or export it for manual setup). It can
   produce large stderr logs; keep it unset for ordinary use.
 
 Regression tests run without a GPU, Wine installation, or downloaded DLSS

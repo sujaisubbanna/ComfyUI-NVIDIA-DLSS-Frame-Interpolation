@@ -1,4 +1,4 @@
-"""Exercise setup using real files, command peers and the generated launcher."""
+"""Exercise setup and saved settings using real files and command peers."""
 
 import importlib.util
 import io
@@ -12,6 +12,8 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
+
+from dlss_engine.core import workers
 
 SPEC = importlib.util.spec_from_file_location(
     "setup_linux", Path(__file__).parents[1] / "scripts/setup_linux.py"
@@ -30,17 +32,14 @@ class LinuxSetupTests(unittest.TestCase):
         self.prefix = self.root / "prefix"
         self.comfy = self.root / "ComfyUI"
         self.comfy.mkdir()
-        (self.comfy / "main.py").write_text(
-            "import os, sys, json\nfrom pathlib import Path\n"
-            "Path('launched.json').write_text(json.dumps({"
-            "'args':sys.argv[1:], 'prefix':os.environ['WINEPREFIX'],"
-            "'overrides':os.environ['WINEDLLOVERRIDES']}))\n"
-        )
+        (self.comfy / "main.py").write_text("# ComfyUI entry point fixture\n")
         self.files = self.root / "proton/files"
         self.bin = self.files / "bin"
         self.bin.mkdir(parents=True)
         wine = (
-            "import os\nfrom pathlib import Path\n"
+            "import os, sys, json\nfrom pathlib import Path\n"
+            "if sys.argv[-1] == '--probe':\n"
+            " print(json.dumps(dict(os.environ))); sys.exit(0)\n"
             "p=Path(os.environ['WINEPREFIX'])\n"
             "(p/'drive_c/windows/system32').mkdir(parents=True, exist_ok=True)\n"
             "(p/'system.reg').touch()\n"
@@ -91,10 +90,15 @@ class LinuxSetupTests(unittest.TestCase):
             str(self.driver),
         ]
         self.enterContext(patch.object(setup, "ROOT", self.repo))
+        self.enterContext(
+            patch.object(
+                workers, "CONFIG_PATH", self.repo / "linux-runtime.json"
+            )
+        )
         self.enterContext(patch.dict(os.environ, {"PATH": str(self.bin)}))
         self.enterContext(redirect_stdout(io.StringIO()))
 
-    def test_setup_rerun_and_launcher_with_quoted_paths(self):
+    def test_setup_rerun_and_worker_with_saved_paths(self):
         setup.main(self.args)
         system32 = self.prefix / "drive_c/windows/system32"
         victim = self.root / "outside.dll"
@@ -107,26 +111,24 @@ class LinuxSetupTests(unittest.TestCase):
         self.assertEqual(
             (self.prefix / "boot.log").read_text(), "called\ncalled\n"
         )
-        subprocess.run(
-            [
-                str(self.prefix / "start-comfyui.sh"),
-                "--test-value",
-                "$(touch unwanted); quote '",
-            ],
-            check=True,
-            timeout=10,
-        )
-        result = json.loads((self.comfy / "launched.json").read_text())
-        self.assertEqual(result["prefix"], str(self.prefix))
-        self.assertEqual(
-            result["args"], ["--test-value", "$(touch unwanted); quote '"]
-        )
-        self.assertIn("d3dcompiler_47=n,b", result["overrides"])
-        self.assertFalse((self.comfy / "unwanted").exists())
+        before = dict(os.environ)
+        with workers.WorkerProcess(
+            self.repo / "bin/runtime/host/nvngx.dll",
+            "--probe",
+            stdout=subprocess.PIPE,
+        ) as process:
+            output, _ = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 0)
+        result = json.loads(output)
+        self.assertEqual(result["WINEPREFIX"], str(self.prefix))
+        self.assertIn("d3dcompiler_47=n,b", result["WINEDLLOVERRIDES"])
+        self.assertEqual(dict(os.environ), before)
+        self.assertFalse((self.prefix / "start-comfyui.sh").exists())
 
     def test_check_makes_no_prefix_or_driver_links(self):
         setup.main([*self.args, "--check"])
         self.assertFalse(self.prefix.exists())
+        self.assertFalse((self.repo / "linux-runtime.json").exists())
         self.assertFalse((self.repo / "bin/runtime/host/_nvngx.dll").exists())
 
     def test_existing_unmanaged_prefix_is_untouched(self):
@@ -145,9 +147,11 @@ class LinuxSetupTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Git LFS pointer"):
             setup.main(self.args)
         self.assertFalse(self.prefix.exists())
+        self.assertFalse((self.repo / "linux-runtime.json").exists())
 
     def test_wrong_architecture_fails_before_mutation(self):
         self.compiler.write_bytes(b"MZ" + bytes(62))
         with self.assertRaisesRegex(RuntimeError, "x86-64"):
             setup.main(self.args)
         self.assertFalse(self.prefix.exists())
+        self.assertFalse((self.repo / "linux-runtime.json").exists())

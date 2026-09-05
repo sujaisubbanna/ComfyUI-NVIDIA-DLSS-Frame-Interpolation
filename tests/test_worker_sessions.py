@@ -10,7 +10,12 @@ from unittest.mock import patch
 
 import numpy as np
 
-from dlss_engine.core.jobs import BoundedLogBuffer, JobController, drain_bounded_text
+from dlss_engine.core import workers
+from dlss_engine.core.jobs import (
+    BoundedLogBuffer,
+    JobController,
+    drain_bounded_text,
+)
 from dlss_engine.core.runtime import DLSSFrameSession
 from dlss_engine.core.workers import WorkerProcess
 from dlss_engine.frame_interpolation import capabilities, native
@@ -21,6 +26,13 @@ class SessionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        self.enterContext(
+            patch.object(
+                workers,
+                "CONFIG_PATH",
+                Path(self.temp.name) / "linux-runtime.json",
+            )
+        )
         root = Path(self.temp.name)
         self.worker = root / "worker.exe"
         self.worker.write_bytes(b"MZ" + bytes(64))
@@ -40,9 +52,13 @@ class SessionTests(unittest.TestCase):
             )
         )
         for module in (capabilities, native):
-            self.enterContext(patch.object(module, "DLSSG_WORKER", self.worker))
+            self.enterContext(
+                patch.object(module, "DLSSG_WORKER", self.worker)
+            )
             self.enterContext(patch.object(module, "RUNTIME_DIR", root))
-        self.enterContext(patch.object(capabilities, "DLSSG_RUNTIME", self.worker))
+        self.enterContext(
+            patch.object(capabilities, "DLSSG_RUNTIME", self.worker)
+        )
 
     def test_probe_reads_real_subprocess_json(self):
         result = capabilities._probe_worker()
