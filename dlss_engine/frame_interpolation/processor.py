@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import time
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -466,12 +467,15 @@ def interpolate_video(
                 elapsed_seconds=elapsed,
                 timings=timings,
             )
-        except Exception as exc:
+        except BaseException as exc:
             if output and output.exists():
-                output.unlink()
+                with suppress(OSError):
+                    output.unlink()
             if controller.cancel.is_set():
                 raise Cancelled("Frame interpolation stopped by user.") from exc
             if isinstance(exc, Cancelled):
+                raise
+            if not isinstance(exc, Exception):
                 raise
             logs_root.mkdir(parents=True, exist_ok=True)
             failure_stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{time.time_ns() % 1_000_000:06d}"
@@ -493,20 +497,22 @@ def interpolate_video(
             raise RuntimeError(f"{exc}\nDiagnostic report: {failure_path.resolve()}") from exc
         finally:
             for session in sessions:
-                session.close()
+                with suppress(Exception):
+                    session.close()
             if encoder is not None:
                 if encoder.poll() is None:
-                    encoder.terminate()
+                    with suppress(OSError):
+                        encoder.terminate()
                 try:
                     encoder.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    encoder.kill()
-                    encoder.wait(timeout=5)
+                    with suppress(OSError):
+                        encoder.kill()
+                    with suppress(OSError, subprocess.TimeoutExpired):
+                        encoder.wait(timeout=5)
                 if encoder.stdin and not encoder.stdin.closed:
-                    try:
+                    with suppress(OSError):
                         encoder.stdin.close()
-                    except OSError:
-                        pass
                 controller.unregister(encoder)
                 if encoder_thread is not None:
                     encoder_thread.join(timeout=2)
