@@ -108,13 +108,17 @@ def _neural_inputs() -> list:
         io.Float.Input("skin_structure_strength", default=-1.0, min=-1.0, max=2.0, step=0.05),
         io.Boolean.Input("automatic_mask", default=False),
         io.Combo.Input("dlss_model_preset", options=list(DLSS_MODEL_PRESETS), default="Default"),
-        io.Float.Input(
-            "output_detail_strength", default=1.0, min=1.0, max=2.0,
-            step=0.05, optional=True,
-            tooltip="SDR output composition: 1 preserves worker output; "
-            "2 amplifies brightness changes. Separate from NR intensity.",
-        ),
     ]
+
+
+def _output_detail_strength_input():
+    """Append-only widget so saved video workflows retain their existing order."""
+    return io.Float.Input(
+        "output_detail_strength", default=1.0, min=1.0, max=2.0,
+        step=0.05, optional=True,
+        tooltip="SDR output composition: 1 preserves worker output; "
+        "2 amplifies brightness changes. Separate from NR intensity.",
+    )
 
 
 class NvidiaDLSSFrameInterpolation(io.ComfyNode):
@@ -203,6 +207,7 @@ class NvidiaDLSSVideoUpscale(io.ComfyNode):
                 io.Combo.Input("rename", options=list(RENAME_MODES), default="Auto", tooltip="Controls only the temporary filename."),
                 io.String.Input("custom_suffix", default="_DLSS5"),
                 io.Boolean.Input("hdr_mode", default=False, tooltip="10-bit output with input colorspace metadata. Supported by H.265, AV1, and ProRes only."),
+                _output_detail_strength_input(),
             ],
             outputs=[
                 io.Video.Output("video", display_name="upscaled_video"),
@@ -292,6 +297,7 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
                 io.Combo.Input("upscale_mode", options=list(UPSCALE_FACTORS), default="1.5× (Quality)"),
                 io.Boolean.Input("require_neural_upscaling", default=False, tooltip="Fail instead of returning a larger fallback result when NVIDIA reports neural upscaling inactive."),
                 *_neural_inputs(),
+                _output_detail_strength_input(),
             ],
             outputs=[
                 io.Image.Output("image", display_name="upscaled_image"),

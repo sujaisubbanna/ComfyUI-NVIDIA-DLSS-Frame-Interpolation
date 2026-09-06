@@ -350,12 +350,14 @@ NR evaluation. Their reports distinguish these cases:
 - `nr_native_fallback: true`: the runtime rejected direct NR upscaling and
   evaluated NR at output resolution after the carrier's DLSS SR pass.
 
-In the tested Quality-mode inputs, direct NR upscaling returned `0xBAD00005`
-and the existing native-resolution NR fallback succeeded. The output was
-larger and NR executed, but `nr_upscaling_active` remained false. Leave
-**Require Neural Upscaling** at its default `false` to accept that existing
-fallback policy. Setting it to `true` intentionally rejects such output.
-Neither the Linux launcher nor the compatibility patch changes that check.
+On the tested RTX 5090 / NVIDIA Linux driver **610.57.04** configuration,
+direct NR upscaling returned `0xBAD00005` and the existing native-resolution
+NR fallback succeeded. The output was larger and NR executed, but
+`nr_upscaling_active` remained false. This driver/runtime combination therefore
+does **not** provide direct neural upscaling on Linux. Leave **Require Neural
+Upscaling** at its default `false` to accept the existing fallback policy.
+Setting it to `true` intentionally rejects such output. Neither the Linux
+launcher nor the compatibility patch changes that check.
 
 ### Proton environment variables
 

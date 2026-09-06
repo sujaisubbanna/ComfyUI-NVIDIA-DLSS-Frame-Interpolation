@@ -49,8 +49,19 @@ def linux_worker_environment() -> dict[str, str]:
         ):
             raise ValueError("expected version 1 and environment")
         settings = config["environment"]
-        if not isinstance(settings, dict) or not settings:
-            raise ValueError("environment must be a nonempty object")
+        if not isinstance(settings, dict) or set(settings) != LINUX_ENV_KEYS:
+            setting_keys = set(settings) if isinstance(settings, dict) else set()
+            missing = sorted(LINUX_ENV_KEYS - setting_keys)
+            unexpected = sorted(setting_keys - LINUX_ENV_KEYS)
+            detail = []
+            if missing:
+                detail.append("missing " + ", ".join(missing))
+            if unexpected:
+                detail.append("unexpected " + ", ".join(unexpected))
+            raise ValueError(
+                "environment must contain the complete helper-generated key set"
+                + (" (" + "; ".join(detail) + ")" if detail else "")
+            )
         for key, value in settings.items():
             if (
                 key not in LINUX_ENV_KEYS

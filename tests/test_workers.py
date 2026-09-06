@@ -60,6 +60,7 @@ class WorkerTests(unittest.TestCase):
             '{"version": 2, "environment": {}}',
             '{"version": 1, "environment": {"LD_PRELOAD": "x"}}',
             '{"version": 1, "environment": {"WINEPREFIX": 3}}',
+            '{"version": 1, "environment": {"WINEPREFIX": "/prefix"}}',
         ):
             with self.subTest(content=content):
                 workers.CONFIG_PATH.write_text(content)
@@ -69,18 +70,29 @@ class WorkerTests(unittest.TestCase):
                     workers.linux_worker_environment()
 
     def test_saved_settings_override_ambient_wine_only_for_worker(self):
+        saved_environment = {
+            key: f"saved-{key.lower()}" for key in workers.LINUX_ENV_KEYS
+        }
+        saved_environment["WINEPREFIX"] = str(self.prefix)
         workers.CONFIG_PATH.write_text(
             json.dumps(
                 {
                     "version": 1,
-                    "environment": {"WINEPREFIX": str(self.prefix)},
+                    "environment": saved_environment,
                 }
             )
         )
-        with patch.dict(os.environ, {"WINEPREFIX": "/unrelated-game-prefix"}):
+        with patch.dict(
+            os.environ,
+            {
+                "WINEPREFIX": "/unrelated-game-prefix",
+                "DXVK_CONFIG": "unrelated setting",
+            },
+        ):
             before = dict(os.environ)
             result = workers.linux_worker_environment()
             self.assertEqual(result["WINEPREFIX"], str(self.prefix))
+            self.assertEqual(result["DXVK_CONFIG"], saved_environment["DXVK_CONFIG"])
             self.assertEqual(dict(os.environ), before)
 
     def test_lfs_pointer_and_invalid_binary_fail_before_launch(self):
