@@ -83,8 +83,9 @@ def cancel_active_job() -> str:
 
 
 def drain_text(stream, lines: list[str]) -> None:
-    for raw in iter(stream.readline, b""):
-        lines.append(raw.decode("utf-8", "replace").rstrip())
+    with stream:
+        for raw in iter(stream.readline, b""):
+            lines.append(raw.decode("utf-8", "replace").rstrip())
 
 
 class BoundedLogBuffer:
@@ -135,5 +136,6 @@ class BoundedLogBuffer:
 
 
 def drain_bounded_text(stream, buffer: BoundedLogBuffer) -> None:
-    for raw in iter(stream.readline, b""):
-        buffer.append(raw.decode("utf-8", "replace").rstrip())
+    with stream:
+        for raw in iter(stream.readline, b""):
+            buffer.append(raw.decode("utf-8", "replace").rstrip())

@@ -9,6 +9,7 @@ from fractions import Fraction
 import numpy as np
 
 from ..core.jobs import Cancelled, JobController
+from ..core.workers import WorkerProcess
 from .capabilities import DLSSG_WORKER, RUNTIME_DIR
 
 
@@ -47,15 +48,13 @@ class DirectDLSSGSession:
         self.generated_count = int(generated_count)
         self.controller = controller
         self.logs: collections.deque[str] = collections.deque(maxlen=300)
-        command = [str(DLSSG_WORKER), "--serve"]
-        self.process = subprocess.Popen(
-            command,
+        self.process = WorkerProcess(
+            DLSSG_WORKER, "--serve",
             cwd=str(RUNTIME_DIR),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            bufsize=0,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            # Buffered writes must deliver the whole frame over a Linux pipe.
         )
         controller.register(self.process)
         assert self.process.stdin is not None
@@ -63,20 +62,25 @@ class DirectDLSSGSession:
         assert self.process.stderr is not None
         self._log_thread = threading.Thread(target=self._read_logs, daemon=True)
         self._log_thread.start()
-        self.process.stdin.write(
-            struct.pack(
-                "<5I",
-                SETUP_MAGIC,
-                self.width,
-                self.height,
-                max(1, int(frame_count)),
-                self.generated_count,
+        self.closed = False
+        try:
+            self.process.stdin.write(
+                struct.pack(
+                    "<5I",
+                    SETUP_MAGIC,
+                    self.width,
+                    self.height,
+                    max(1, int(frame_count)),
+                    self.generated_count,
+                )
             )
-        )
-        self.process.stdin.flush()
-        magic, status, maximum, _reserved = struct.unpack(
-            "<4I", _read_exact(self.process.stdout, struct.calcsize("<4I"))
-        )
+            self.process.stdin.flush()
+            magic, status, maximum, _reserved = struct.unpack(
+                "<4I", _read_exact(self.process.stdout, struct.calcsize("<4I"))
+            )
+        except Exception:
+            self.close()
+            raise
         if magic != SETUP_OUT_MAGIC or status:
             self.close()
             raise RuntimeError(
@@ -90,7 +94,6 @@ class DirectDLSSGSession:
                 f"MultiFrameCountMax is {maximum}."
             )
         self._next_index = 0
-        self.closed = False
 
     def _read_logs(self) -> None:
         assert self.process.stderr is not None
@@ -170,8 +173,13 @@ class DirectDLSSGSession:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
+                process.wait(timeout=5)
         self.controller.unregister(process)
         self._log_thread.join(timeout=1)
+        if process.stdout:
+            process.stdout.close()
+        if process.stderr and not self._log_thread.is_alive():
+            process.stderr.close()
 
     def __enter__(self) -> "DirectDLSSGSession":
         return self

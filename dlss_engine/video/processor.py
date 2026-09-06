@@ -14,19 +14,28 @@ from pathlib import Path
 from typing import Callable
 
 import av
-import cv2
 import numpy as np
 
 from ..core import ffmpeg
+from ..core.composition import (
+    compose_sdr,
+    composition_report,
+    validate_detail_strength,
+)
 from ..core.gpu_selection import resolve_runtime_ai_gpu
 from ..core.jobs import Cancelled, active_job
 from ..core.naming import output_filename, require_available_output, validate_rename
+from ..core.paths import HOST_DIR
 from ..core.runtime import (
-    DLSSFrameSession, prepare_runtime, resize_fit, rotate_frame, verify_feature_18,
+    DLSSFrameSession,
+    prepare_runtime,
+    resize_fit,
+    rotate_frame,
+    verify_feature_18,
     write_failure_report,
 )
 from .guides import TemporalGuideGenerator
-from .models import ConversionOptions, ConversionResult, DLSS_MODEL_PRESETS
+from .models import DLSS_MODEL_PRESETS, ConversionOptions, ConversionResult
 from .sizing import resolve_native_settings, resolve_output_size, resolve_upscaling_mode
 
 validate_codec_container = ffmpeg.validate_codec_container
@@ -68,6 +77,9 @@ def convert_video(
     logs_directory: str | os.PathLike[str],
 ) -> ConversionResult:
     options = options or ConversionOptions()
+    detail_strength = validate_detail_strength(options.output_detail_strength)
+    if options.preserve_hdr and detail_strength != 1.0:
+        raise ValueError("Output detail strength is currently SDR-only.")
     source = Path(input_path).resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -418,6 +430,7 @@ def convert_video(
                     pts=pts,
                 )
                 dlss_seconds += time.perf_counter() - dlss_started
+                processed = compose_sdr(rgba, processed, detail_strength)
                 if is_preview:
                     if preview_pts_origin is None:
                         preview_pts_origin = out_pts
@@ -525,6 +538,7 @@ def convert_video(
                 "encoder": selected_encoder,
                 "encoding_quality": encoding_quality,
                 "frames_processed": delivered,
+                "output_composition": composition_report(detail_strength),
                 "render_mode": (
                     "full"
                     if not is_preview
@@ -567,11 +581,11 @@ def convert_video(
                 "successful_neural_rendering_frames": nr_count,
                 "addon_release": runtime_bundle["addon"]["release"],
                 "loaded_module_inventory": [
-                    "host/nvngx.dll (standalone worker image)",
-                    "host/dxgi.dll (ReShade carrier)",
-                    "host/renodx-dlss5.addon64",
+                    f"{HOST_DIR.name}/nvngx.dll (standalone worker image)",
+                    f"{HOST_DIR.name}/dxgi.dll (ReShade carrier)",
+                    f"{HOST_DIR.name}/renodx-dlss5.addon64",
                     "dlss/nvngx_dlss.dll",
-                    "host/nvngx_dlssnr.dll",
+                    f"{HOST_DIR.name}/nvngx_dlssnr.dll",
                     "system D3D12/DXGI/NGX core",
                 ],
                 "native_settings": native,

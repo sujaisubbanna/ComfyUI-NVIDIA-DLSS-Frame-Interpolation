@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import re
 import subprocess
+import sys
 from functools import lru_cache
 from typing import Any
 
@@ -55,8 +56,10 @@ def _normalize_pci_bus_id(value: str) -> str:
 def _cuda_device_identities() -> dict[str, dict[str, Any]]:
     """Map normalized PCI bus IDs to CUDA ordinals for optional NVENC selection."""
     try:
-        loader = getattr(ctypes, "WinDLL", ctypes.CDLL)
-        cuda = loader("nvcuda.dll")
+        if sys.platform == "win32":
+            cuda = ctypes.WinDLL("nvcuda.dll")
+        else:
+            cuda = ctypes.CDLL("libcuda.so.1")
     except (AttributeError, OSError):
         return {}
 

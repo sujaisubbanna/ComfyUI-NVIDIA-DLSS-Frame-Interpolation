@@ -79,7 +79,7 @@ The animated comparison is a deliberately slowed demonstration, not real-time pl
 
 ## Requirements
 
-- Windows
+- Windows, or Linux x86-64 with Wine (experimental; see below)
 - A compatible NVIDIA RTX GPU
 - A current NVIDIA display driver
 - A current ComfyUI installation
@@ -87,7 +87,27 @@ The animated comparison is a deliberately slowed demonstration, not real-time pl
 
 No extra Python packages are required beyond the packages included with current ComfyUI (`torch`, `av`, `numpy`, and OpenCV). The NVIDIA DLLs, RenoDX/ReShade carrier, and native workers are included in this custom-node folder. FFmpeg and FFprobe are the only intentionally external runtime tools.
 
-Hardware-accelerated GPU scheduling (HAGS) is recommended for Frame Generation. Capability is checked at runtime; GPU branding alone does not guarantee that every DLSS path will initialize.
+Hardware-accelerated GPU scheduling (HAGS) is recommended for Frame Generation on Windows. Capability is checked at runtime; GPU branding alone does not guarantee that every DLSS path will initialize.
+
+### Linux
+
+Use the [Linux setup helper](docs/linux.md#setup-helper-recommended) to prepare
+a dedicated Wine prefix, save worker settings, and optionally verify all
+three nodes. The [Linux guide](docs/linux.md) also includes manual setup. ComfyUI,
+PyTorch, and FFmpeg run natively; only the bundled Windows workers run through
+Wine, DXVK, VKD3D-Proton, and DXVK-NVAPI. After setup, start ComfyUI normally;
+the saved settings apply only to Linux workers. Manual `WINEPREFIX` and
+`DLSS_WINE_PATH` environment configuration is also supported.
+
+All three nodes have been tested on an RTX 5090 with driver 610.57.04 and
+GE-Proton 11-6: native/cascaded frame interpolation, image-batch upscaling,
+and video upscaling with audio preservation and confirmed NR execution.
+NR requires the included ReShade descriptor fix, native shader compiler,
+and Wine heap settings described in the guide.
+
+The tested upscale modes used DLSS SR followed by native-resolution NR;
+the runtime reported `nr_native_fallback: true`. Direct NR upscaling was
+not active, and **Require Neural Upscaling** still rejects that fallback.
 
 ## Installation
 
@@ -224,6 +244,9 @@ Install FFmpeg and place both executables on `PATH`, or set `DLSS_FFMPEG_PATH` a
 
 Update the NVIDIA driver, enable HAGS in Windows graphics settings, restart Windows, and retry. `report_json` includes the detected GPU, driver, runtime, signature status, and supported native multiplier.
 
+On Linux, HAGS is not applicable. Check the Wine/NGX setup and run the
+capability probe in [docs/linux.md](docs/linux.md#verify-frame-interpolation).
+
 ### Native DLSSG rejects the requested FPS
 
 Choose **Auto** or **Cascade**. Native mode accepts only an exact constant-frame-rate multiplier supported by the runtime.
@@ -254,3 +277,27 @@ Runtime licenses are included beside their respective files under `bin/runtime/h
 RenoDX and ReShade license texts are included under `bin/runtime/host`.
 
 FFmpeg and FFprobe are not included and remain governed by the license of the user's installation.
+
+### SDR output detail strength
+
+The image and video upscale nodes expose optional **output_detail_strength**
+(default **1.0**, maximum **2.0**). One leaves the worker output byte-for-byte
+unchanged, including existing workflows. Two amplifies brightness differences
+between the source and rendered output using a bounded luminance ratio. This
+is an output adjustment, separate from **nr_intensity**, and does not run the
+neural model again or prove stronger neural synthesis.
+
+Start with **Cinematic**, **nr_intensity = 2**, and **output_detail_strength = 2**
+to reproduce the stronger composition setting explored in the Linux tests.
+Compare against strength 1 on the same clip. The adjustment runs on the CPU
+using NumPy, in small row tiles; DLSS/NR inference remains on the NVIDIA GPU.
+It preserves alpha and video timing/audio. With upscaling, the reference is
+resized to the output size, so the adjustment includes SR changes as well as NR.
+HDR mode requires strength 1; this composition has only been validated for SDR.
+
+Reports include `output_composition` with the strength, method and execution
+location. Feature-18 evidence describes model execution, not visual parity with
+Windows. The control implements SDR brightness-ratio amplification; it is not
+a bundled OptiScaler backend or its full game exposure/color pipeline. The
+investigation used [OptiScaler's shader](https://github.com/Dagherbou/OptiScaler_DLSSNR/blob/dlss-neural-rendering/OptiScaler/shaders/dlssnr/precompile/dlssnr.hlsl)
+as a separate GPU reference, and no GPL shader or binary is redistributed here.

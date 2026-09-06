@@ -7,6 +7,7 @@ import mmap
 import re
 import struct
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -19,9 +20,21 @@ import numpy as np
 from .gpu_detection import detect_gpus
 from .gpu_selection import resolve_runtime_ai_gpu
 from .jobs import BoundedLogBuffer, Cancelled, JobController, drain_bounded_text
-from .paths import ADDON, DLSS_SUPERRES, FFMPEG, FFPROBE, HOST_DIR, HOST_DXGI, LOGS, NEURAL_RUNTIME, RESHADE_LOG, RUNTIME, WORKER
-
-
+from .paths import (
+    ADDON,
+    DLSS_SUPERRES,
+    FFMPEG,
+    FFPROBE,
+    HOST_DIR,
+    HOST_DXGI,
+    LOGS,
+    NEURAL_RUNTIME,
+    RESHADE_LOG,
+    RUNTIME,
+    WORKER,
+    prepare_host,
+)
+from .workers import WorkerProcess, validate_binary
 
 # Shared DLSS Neural Rendering controls and sizing. These are feature-neutral and
 # used by both Image and Video processing.
@@ -195,6 +208,7 @@ def inspect_runtime_bundle(
         },
         "worker": {
             "path": str(WORKER.resolve()),
+            "backend": "wine" if sys.platform == "linux" else "native",
         },
     }
 
@@ -352,6 +366,8 @@ def validate_runtime_files() -> None:
     missing = [str(path) for path in required if not path.exists()]
     if missing:
         raise RuntimeError("Portable runtime is incomplete:\n" + "\n".join(missing))
+    for path in (WORKER, HOST_DXGI, ADDON, DLSS_SUPERRES, NEURAL_RUNTIME):
+        validate_binary(path)
 
 
 def _read_exact(stream, size: int) -> bytes:
@@ -417,15 +433,12 @@ class DLSSFrameSession:
                 tail_size = min(256, self._reshade_log_baseline_size)
                 stream.seek(self._reshade_log_baseline_size - tail_size)
                 self._reshade_log_baseline_tail = stream.read(tail_size)
-        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        worker_command = [str(WORKER), "--video"]
-        self.worker = subprocess.Popen(
-            worker_command,
+        self.worker = WorkerProcess(
+            WORKER, "--video",
             cwd=HOST_DIR,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            creationflags=creation_flags,
         )
         controller.register(self.worker)
         assert self.worker.stderr is not None
@@ -618,12 +631,14 @@ class DLSSFrameSession:
     def close(self) -> None:
         if self.closed:
             return
-        if self.worker.stdin and not self.worker.stdin.closed:
-            self.worker.stdin.close()
-        worker_code = self.worker.wait(timeout=60)
-        self.worker_thread.join(timeout=2)
-        self.controller.unregister(self.worker)
-        self.closed = True
+        try:
+            if self.worker.stdin and not self.worker.stdin.closed:
+                self.worker.stdin.close()
+            worker_code = self.worker.wait(timeout=60)
+        finally:
+            # Also reap the Wine process group on timeout or broken input.
+            # Preserve the original failure after releasing session resources.
+            self.abort()
         if worker_code:
             raise RuntimeError(
                 "Native DLSS worker failed:\n" + "\n".join(self.worker_logs[-40:])
@@ -632,18 +647,26 @@ class DLSSFrameSession:
     def abort(self) -> None:
         if self.closed:
             return
-        if self.worker.poll() is None:
-            try:
-                self.worker.terminate()
-                self.worker.wait(timeout=10)
-            except (OSError, subprocess.TimeoutExpired):
+        try:
+            if self.worker.poll() is None:
                 try:
+                    self.worker.terminate()
+                    self.worker.wait(timeout=10)
+                except (OSError, subprocess.TimeoutExpired):
                     self.worker.kill()
-                except OSError:
-                    pass
-        self.worker_thread.join(timeout=2)
-        self.controller.unregister(self.worker)
-        self.closed = True
+                    self.worker.wait(timeout=10)
+        finally:
+            self.closed = True
+            self.controller.unregister(self.worker)
+            self.worker_thread.join(timeout=2)
+            for stream in (self.worker.stdin, self.worker.stdout):
+                if stream and not stream.closed:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+            if self.worker.stderr and not self.worker_thread.is_alive():
+                self.worker.stderr.close()
 
 
 def verify_feature_18(
@@ -759,6 +782,7 @@ def prepare_runtime() -> PreparedRuntime:
         if _PREPARED is not None:
             return _PREPARED
 
+        prepare_host()
         validate_runtime_files()
         gpus = detect_gpus()
         runtime_bundle = inspect_runtime_bundle()

@@ -47,3 +47,15 @@ desktop.ini
 *.temp
 *.part
 *.incomplete
+
+# Linux driver bridges and graphics caches (installed/generated locally)
+/bin/runtime/**/_nvngx.dll
+/bin/runtime/**/vkd3d-proton.cache*
+/bin/runtime/**/*.dxvk-cache
+
+# Linux host links, worker copy and configuration are prepared locally.
+/bin/runtime/host-linux/*
+!/bin/runtime/host-linux/dxgi.dll
+
+# Per-installation Linux worker settings written by setup.
+/linux-runtime.json

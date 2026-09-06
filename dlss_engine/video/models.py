@@ -30,6 +30,7 @@ class ConversionOptions:
     # True = truncated preview uses the forced H.264 SDR path (current behavior).
     # False = truncated preview uses the user's codec/container (HDR preserved).
     preview_compat: bool = True
+    output_detail_strength: float = 1.0
 
 @dataclass(slots=True)
 class ConversionResult:
