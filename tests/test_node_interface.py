@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 import unittest
 
-
 # Type helpers kept simple to keep this test dependency-light and runnable without Comfy.
 
 def _extract_io_calls(expr, fn_defs):
@@ -67,20 +66,37 @@ def _collect_node_contracts(source: str) -> dict[str, dict[str, list[str]]]:
 
 
 class ImageNodeInterfaceTests(unittest.TestCase):
+    @staticmethod
+    def _read_main_init(root: Path):
+        candidates = [
+            "upstream/main",
+            "origin/main",
+            "main",
+        ]
+        for ref in candidates:
+            try:
+                return subprocess.check_output(
+                    ["git", "show", f"{ref}:__init__.py"],
+                    cwd=root,
+                    text=True,
+                )
+            except subprocess.CalledProcessError:
+                continue
+        return ""
+
     @classmethod
     def setUpClass(cls):
         root = Path(__file__).parents[1]
         current = (root / "__init__.py").read_text()
-        main = subprocess.check_output(
-            ["git", "show", "upstream/main:__init__.py"],
-            cwd=root,
-            text=True,
-        )
+        main = cls._read_main_init(root)
         cls.current_contracts = _collect_node_contracts(current)
-        cls.main_contracts = _collect_node_contracts(main)
+        cls.main_contracts = _collect_node_contracts(main) if main else {}
         cls.current_source = current
+        cls.has_main_reference = bool(main)
 
     def test_legacy_node_input_contracts_match_upstream(self):
+        if not self.has_main_reference:
+            self.skipTest("No upstream/main reference available to compare upstream node contract compatibility")
         for node_name in [
             "NvidiaDLSSFrameInterpolation",
             "NvidiaDLSSVideoUpscale",
