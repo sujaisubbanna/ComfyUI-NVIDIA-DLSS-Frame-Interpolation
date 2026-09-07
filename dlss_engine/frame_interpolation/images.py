@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from fractions import Fraction
 import time
 from typing import Callable
+from contextlib import suppress
 
 import numpy as np
 
@@ -116,6 +117,8 @@ def interpolate_image_sequence(
         assert controller is not None
         started = time.perf_counter()
         sessions: list[DirectDLSSGSession] = []
+        result: ImageInterpolationResult | None = None
+        close_error: Exception | None = None
         try:
             height, width = map(int, frames.shape[1:3])
             if plan.path == "Native DLSSG":
@@ -139,9 +142,7 @@ def interpolate_image_sequence(
                     session,
                     width,
                     height,
-                    plan.generated_per_interval
-                    if plan.path == "Native DLSSG"
-                    else 1,
+                    plan.generated_per_interval if plan.path == "Native DLSSG" else 1,
                     detect_source_cuts=index == 0,
                 )
                 for index, session in enumerate(sessions)
@@ -194,10 +195,20 @@ def interpolate_image_sequence(
                 "gpu": ai_gpu,
                 "elapsed_seconds": elapsed,
             }
-            return ImageInterpolationResult(result_frames, report)
+            result = ImageInterpolationResult(result_frames, report)
+        except Exception:
+            for session in sessions:
+                if session is not None:
+                    with suppress(Exception):
+                        session.abort()
+            raise
         finally:
             for session in sessions:
                 try:
                     session.close()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    if close_error is None:
+                        close_error = exc
+    if close_error is not None and result is not None:
+        raise close_error
+    return result

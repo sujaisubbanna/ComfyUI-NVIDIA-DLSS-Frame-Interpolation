@@ -6,6 +6,7 @@ from fractions import Fraction
 
 FPS_RATES: dict[str, Fraction] = {
     "23.976": Fraction(24000, 1001),
+    "24": Fraction(24, 1),
     "25": Fraction(25, 1),
     "29.97": Fraction(30000, 1001),
     "30": Fraction(30, 1),

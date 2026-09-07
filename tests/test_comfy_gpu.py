@@ -39,17 +39,34 @@ class ComfyNodeGPUTests(unittest.TestCase):
         return torch.cat([torch.roll(base, shifts=index * 19, dims=2) for index in range(frames)])
 
     def test_frame_interpolation_image_batch(self):
-        result = self.nodes.NvidiaDLSSFrameInterpolation.execute(
+        result = self.nodes.NvidiaDLSSImageFrameInterpolation.execute(
             self.image_batch(), "30", "60", "Auto",
         )
         output = result.result[0]
         self.assertEqual(tuple(output.shape), (10, 360, 640, 3))
         self.assertTrue(self.torch.isfinite(output).all())
-        report = json.loads(result.result[1])
+        report = json.loads(result.result[2])
         self.assertEqual(report["source_type"], "image_sequence")
         self.assertEqual(report["input_frames"], 5)
         self.assertEqual(report["output_frames"], 10)
+        self.assertEqual(result.result[1], 60.0)
         self.assertGreater(report["generated_frames"], 0)
+
+    def test_frame_interpolation_default_input_fps_24(self):
+        result = self.nodes.NvidiaDLSSImageFrameInterpolation.execute(
+            self.image_batch(), "24", "60", "Auto",
+        )
+        report = json.loads(result.result[2])
+        self.assertEqual(report["input_fps"], "24")
+        self.assertEqual(result.result[1], 60.0)
+
+    def test_frame_interpolation_exact_fractional_output_fps(self):
+        result = self.nodes.NvidiaDLSSImageFrameInterpolation.execute(
+            self.image_batch(), "24", "59.94", "Auto",
+        )
+        report = json.loads(result.result[2])
+        self.assertEqual(report["output_fps"], "60000/1001")
+        self.assertAlmostEqual(result.result[1], 59.94, delta=0.001)
 
     def test_image_sequence_neural_rendering(self):
         result = self.nodes.NvidiaDLSSImageSequenceUpscale.execute(
