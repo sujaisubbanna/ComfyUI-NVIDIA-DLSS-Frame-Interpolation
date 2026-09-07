@@ -4,6 +4,7 @@ from contextlib import suppress
 import json
 from pathlib import Path
 import tempfile
+import shutil
 import time
 from types import SimpleNamespace
 
@@ -83,7 +84,7 @@ def _preview_output(output_path: Path, report_text: str) -> io.NodeOutput:
     return io.NodeOutput(
         InputImpl.VideoFromFile(str(output_path)),
         report_text,
-        ui=io.PreviewVideo([preview]),
+        ui=ui.PreviewVideo([preview]),
     )
 
 
@@ -219,20 +220,24 @@ class NvidiaDLSSFrameInterpolation(io.ComfyNode):
             rename_mode=str(rename),
             custom_suffix=str(custom_suffix),
         )
-        input_context, input_path = _temporary_video_input(video, "dlssfg-input-")
-        with input_context:
-            result = interpolate_video(
-                input_path,
-                options,
-                progress,
-                output_directory=output_dir,
-                jobs_directory=temp_base / "dlss_frame_interpolation_jobs",
-                logs_directory=output_dir / "reports",
-            )
-        output_path = Path(result.output_path).resolve()
-        report_text = Path(result.report_path).read_text(encoding="utf-8")
-        json.loads(report_text)
-        return _preview_output(output_path, report_text)
+        try:
+            input_context, input_path = _temporary_video_input(video, "dlssfg-input-")
+            with input_context:
+                result = interpolate_video(
+                    input_path,
+                    options,
+                    progress,
+                    output_directory=output_dir,
+                    jobs_directory=temp_base / "dlss_frame_interpolation_jobs",
+                    logs_directory=output_dir / "reports",
+                )
+            output_path = Path(result.output_path).resolve()
+            report_text = Path(result.report_path).read_text(encoding="utf-8")
+            json.loads(report_text)
+            return _preview_output(output_path, report_text)
+        except BaseException:
+            shutil.rmtree(output_dir, ignore_errors=True)
+            raise
 
 
 class NvidiaDLSSVideoUpscale(io.ComfyNode):
@@ -254,6 +259,7 @@ class NvidiaDLSSVideoUpscale(io.ComfyNode):
                 io.Combo.Input("rename", options=list(RENAME_MODES), default="Auto", tooltip="Controls only the temporary filename."),
                 io.String.Input("custom_suffix", default="_DLSS5"),
                 io.Boolean.Input("hdr_mode", default=False, tooltip="10-bit output with input colorspace metadata. Supported by H.265, AV1, and ProRes only."),
+                _output_detail_strength_input(),
             ],
             outputs=[
                 io.Video.Output("video", display_name="upscaled_video"),
@@ -285,11 +291,14 @@ class NvidiaDLSSVideoUpscale(io.ComfyNode):
         rename: str,
         custom_suffix: str,
         hdr_mode: bool,
+        output_detail_strength: float = 1.0,
     ) -> io.NodeOutput:
+        output_detail_strength = validate_detail_strength(output_detail_strength)
         _progress_bar, progress = _progress_callback()
         temp_base = Path(folder_paths.get_temp_directory()).resolve()
         output_dir = Path(tempfile.mkdtemp(prefix="dlss5-video-output-", dir=temp_base))
         options = ConversionOptions(
+            output_detail_strength=output_detail_strength,
             nr_preset=str(nr_preset),
             nr_style=str(nr_style),
             nr_intensity=float(nr_intensity),
@@ -306,29 +315,33 @@ class NvidiaDLSSVideoUpscale(io.ComfyNode):
             rename_mode=str(rename),
             custom_suffix=str(custom_suffix),
         )
-        input_context, input_path = _temporary_video_input(video, "dlss5-video-input-")
-        with input_context:
-            result = convert_video(
-                input_path,
-                options,
-                progress,
-                output_directory=output_dir,
-                jobs_directory=temp_base / "dlss_video_upscale_jobs",
-                logs_directory=output_dir / "reports",
-            )
-        output_path = Path(result.output_path).resolve()
-        report_path = Path(result.report_path).resolve()
-        report = json.loads(report_path.read_text(encoding="utf-8"))
-        report["node_policy"] = {"require_neural_upscaling": bool(require_neural_upscaling)}
-        if require_neural_upscaling and options.upscaling_factor > 1.0 and not report["nr_upscaling_active"]:
-            output_path.unlink(missing_ok=True)
-            raise RuntimeError(
-                "NVIDIA completed the frame processing but reported neural upscaling inactive. "
-                "Disable Require Neural Upscaling to accept the native fallback, or change the "
-                "source resolution, upscale mode, NVIDIA driver, or runtime configuration."
-            )
-        report_text = json.dumps(report, indent=2)
-        return _preview_output(output_path, report_text)
+        try:
+            input_context, input_path = _temporary_video_input(video, "dlss5-video-input-")
+            with input_context:
+                result = convert_video(
+                    input_path,
+                    options,
+                    progress,
+                    output_directory=output_dir,
+                    jobs_directory=temp_base / "dlss_video_upscale_jobs",
+                    logs_directory=output_dir / "reports",
+                )
+            output_path = Path(result.output_path).resolve()
+            report_path = Path(result.report_path).resolve()
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["node_policy"] = {"require_neural_upscaling": bool(require_neural_upscaling)}
+            if require_neural_upscaling and options.upscaling_factor > 1.0 and not report["nr_upscaling_active"]:
+                output_path.unlink(missing_ok=True)
+                raise RuntimeError(
+                    "NVIDIA completed the frame processing but reported neural upscaling inactive. "
+                    "Disable Require Neural Upscaling to accept the native fallback, or change the "
+                    "source resolution, upscale mode, NVIDIA driver, or runtime configuration."
+                )
+            report_text = json.dumps(report, indent=2)
+            return _preview_output(output_path, report_text)
+        except BaseException:
+            shutil.rmtree(output_dir, ignore_errors=True)
+            raise
 
 
 class NvidiaDLSSImageUpscale(io.ComfyNode):
@@ -344,6 +357,7 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
                 io.Combo.Input("upscale_mode", options=list(UPSCALE_FACTORS), default="1.5× (Quality)"),
                 io.Boolean.Input("require_neural_upscaling", default=False, tooltip="Fail instead of returning a larger fallback result when NVIDIA reports neural upscaling inactive."),
                 *_neural_inputs(),
+                _output_detail_strength_input(),
             ],
             outputs=[
                 io.Image.Output("image", display_name="upscaled_image"),
@@ -365,7 +379,9 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
         skin_structure_strength: float,
         automatic_mask: bool,
         dlss_model_preset: str,
+        output_detail_strength: float = 1.0,
     ) -> io.NodeOutput:
+        output_detail_strength = validate_detail_strength(output_detail_strength)
         if image.ndim != 4 or image.shape[-1] not in (1, 3, 4):
             raise ValueError("IMAGE must have shape [batch, height, width, channels] with 1, 3, or 4 channels.")
         batch, input_height, input_width, channels = map(int, image.shape)
@@ -432,6 +448,9 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
                         reset=True,
                         pts=index,
                     )
+                    processed = compose_sdr(
+                        rgba, processed, output_detail_strength
+                    )
                     if channels == 4:
                         processed[..., 3] = cv2.resize(
                             alpha,
@@ -475,6 +494,7 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
             "nr_upscaling_active": bool(evidence["nr_upscaling_active"]),
             "nr_native_fallback": bool(evidence["nr_native_fallback"]),
             "node_policy": {"require_neural_upscaling": bool(require_neural_upscaling)},
+            "output_composition": composition_report(output_detail_strength),
             "carrier_create_result": str(evidence["carrier_create_result"]),
             "native_settings": native,
             "gpu": gpu,

@@ -1,32 +1,36 @@
 # ComfyUI NVIDIA DLSS 5 Visual Enhancer
 
-Native NVIDIA DLSS processing for ordered ComfyUI `IMAGE` batches. This release
-has two nodes, both designed to connect directly to image-producing nodes such
-as **VAE Decode** (including MiniMax workflows):
+Native NVIDIA DLSS processing for ComfyUI image and video workflows.
 
+This release keeps the existing `VIDEO` nodes and adds two IMAGE-sequence nodes.
+
+- **NVIDIA DLSS Frame Interpolation** — `VIDEO → VIDEO`
+- **NVIDIA DLSS Video Upscale** — `VIDEO → VIDEO`
 - **NVIDIA DLSS Image Frame Interpolation** — `IMAGE` batch → higher-rate `IMAGE` batch.
 - **NVIDIA DLSS Image Sequence Upscale** — `IMAGE` batch → larger `IMAGE` batch.
+- **NVIDIA DLSS Image Upscale** — `IMAGE` batch → larger `IMAGE` batch.
 
 ```text
-VAE Decode -> NVIDIA DLSS Image Frame Interpolation -> Video Combine / Save Image
-VAE Decode -> NVIDIA DLSS Image Sequence Upscale   -> Video Combine / Save Image
+VIDEO input -> NVIDIA DLSS Frame Interpolation -> Save Video
+VIDEO input -> NVIDIA DLSS Video Upscale -> Save Video
+IMAGE sequence -> NVIDIA DLSS Image Frame Interpolation -> Video Combine / Save Image
+IMAGE sequence -> NVIDIA DLSS Image Sequence Upscale -> Video Combine / Save Image
+IMAGE sequence -> NVIDIA DLSS Image Upscale -> Save Image
 ```
 
-The nodes never encode a container or write a temporary video. They retain the
-frame order in memory, so a downstream ComfyUI node remains responsible for
-encoding, audio, subtitles, timing metadata, and the permanent output path.
+The VIDEO nodes use temporary transcoding as needed by the worker. The IMAGE
+nodes keep frame order in memory, so a downstream ComfyUI node remains
+responsible for encoding, audio, subtitles, timing metadata, and the permanent
+output path.
 
-## Breaking workflow migration
+## Workflow compatibility
 
-This version intentionally retires the previous `VIDEO` input/output nodes.
-Replace each old node with its `IMAGE` counterpart, route the ordered batch
-from **VAE Decode** (or another image source) into it, and place your chosen
-video-combine node after the DLSS node. Frame interpolation now has an explicit
-**Input FPS** control because an `IMAGE` batch has no embedded timing metadata.
+Existing workflows using **VIDEO** nodes keep working with their current node IDs.
+IMAGE-sequence nodes are new and should be used for image-first pipelines
+(typically after **VAE Decode**). Image-based interpolation has an explicit **Input
+FPS** control because image batches do not carry embedded container timing.
 
-Existing workflows using `NvidiaDLSSFrameInterpolation` or
-`NvidiaDLSSVideoUpscale` need to be rebuilt; retaining their identifiers would
-silently reinterpret a `VIDEO` workflow as image data.
+
 
 ## Requirements
 
