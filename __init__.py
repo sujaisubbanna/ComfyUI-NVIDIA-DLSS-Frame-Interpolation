@@ -124,7 +124,7 @@ def _neural_inputs() -> list:
 
 
 def _output_detail_strength_input():
-    """Composition control shared by image sequence upscale."""
+    """Append-only widget so saved video workflows retain their existing order."""
     return io.Float.Input(
         "output_detail_strength", default=1.0, min=1.0, max=2.0,
         step=0.05, optional=True,
@@ -483,6 +483,7 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
             "feature_id": 18,
             "feature_18_confirmed": True,
             "images_processed": batch,
+            "output_composition": composition_report(output_detail_strength),
             "input_dimensions": {"width": input_width, "height": input_height},
             "negotiated_render_dimensions": {"width": session.render_width, "height": session.render_height},
             "output_dimensions": {"width": output_width, "height": output_height},
@@ -494,7 +495,6 @@ class NvidiaDLSSImageUpscale(io.ComfyNode):
             "nr_upscaling_active": bool(evidence["nr_upscaling_active"]),
             "nr_native_fallback": bool(evidence["nr_native_fallback"]),
             "node_policy": {"require_neural_upscaling": bool(require_neural_upscaling)},
-            "output_composition": composition_report(output_detail_strength),
             "carrier_create_result": str(evidence["carrier_create_result"]),
             "native_settings": native,
             "gpu": gpu,
